@@ -3,6 +3,7 @@ import test from "node:test";
 import { keywordCoverage, scoreAnswerCore } from "../lib/scoring-core.ts";
 import { extractRtfText } from "../lib/document-extract.ts";
 import { analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "../lib/ai-service.ts";
+import { readPreferences } from "../lib/preferences.ts";
 
 const resume = "Led AI product strategy and customer discovery. Increased adoption by 31% and worked cross-functionally with engineering and design.";
 const description = "Lead AI product strategy, customer discovery, cross-functional delivery, analytics and executive communication.";
@@ -45,4 +46,12 @@ test("coaching identifies quantified, structured answers", () => {
 
 test("RTF extraction preserves human-readable text", () => {
   assert.match(extractRtfText("{\\rtf1\\ansi Hello\\par World}"), /Hello\nWorld/);
+});
+
+test("accessibility preferences safely merge with defaults", () => {
+  const preferences = readPreferences(JSON.stringify({ highContrast: true, practiceLanguage: "fr-FR" }));
+  assert.equal(preferences.highContrast, true);
+  assert.equal(preferences.practiceLanguage, "fr-FR");
+  assert.equal(preferences.enhancedFocus, true);
+  assert.equal(readPreferences("not-json").practiceLanguage, "en-AU");
 });

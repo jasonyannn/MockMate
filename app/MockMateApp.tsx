@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { SettingsDialog } from "./SettingsDialog";
+import { SpeechPractice } from "./SpeechPractice";
 import { analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "@/lib/ai-service";
 import { createBlankJob, createDemoWorkspace, SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@/lib/demo-data";
+import { DEFAULT_PREFERENCES, PREFERENCES_STORAGE_KEY, readPreferences } from "@/lib/preferences";
+import type { AppPreferences } from "@/lib/preferences";
 import type { EvidenceItem, InterviewAnswer, Job, ProfileTemplate, QuizAttempt, StageId, Workspace } from "@/lib/types";
 
 const STAGES: { id: StageId; label: string; short: string }[] = [
@@ -22,12 +26,12 @@ function BrandMark() {
   return <span className="brand-mark" aria-hidden="true"><span>M</span><i /></span>;
 }
 
-function Landing({ onEnter }: { onEnter: () => void }) {
+function Landing({ onEnter, onSettings }: { onEnter: () => void; onSettings: () => void }) {
   return (
     <main className="landing">
       <nav className="landing-nav" aria-label="Main navigation">
         <a className="brand" href="#top" aria-label="MockMate home"><BrandMark /><span>MockMate</span></a>
-        <div className="landing-links"><a href="#how">How it works</a><a href="#proof">Why it works</a><button className="button button-ghost" onClick={onEnter}>Sign in</button><button className="button button-dark" onClick={onEnter}>Start preparing <span>↗</span></button></div>
+        <div className="landing-links"><a href="#how">How it works</a><a href="#proof">Why it works</a><button className="landing-settings" onClick={onSettings} aria-label="Accessibility and language settings" title="Accessibility & language (Alt+S)">⚙</button><button className="button button-ghost" onClick={onEnter}>Sign in</button><button className="button button-dark" onClick={onEnter}>Start preparing <span>↗</span></button></div>
       </nav>
       <section id="top" className="hero">
         <div className="hero-copy">
@@ -76,11 +80,17 @@ export function MockMateApp() {
   const [saveState, setSaveState] = useState<"loading" | "saving" | "saved" | "offline">("loading");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [mobileNav, setMobileNav] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [preferences, setPreferences] = useState<AppPreferences>(DEFAULT_PREFERENCES);
+  const [announcement, setAnnouncement] = useState("");
   const firstSave = useRef(true);
+  const preferencesLoaded = useRef(false);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("mockmate-theme");
     if (savedTheme === "dark") queueMicrotask(() => setTheme("dark"));
+    const savedPreferences = readPreferences(localStorage.getItem(PREFERENCES_STORAGE_KEY));
+    queueMicrotask(() => { preferencesLoaded.current = true; setPreferences(savedPreferences); });
     fetch("/api/workspace")
       .then((response) => response.json())
       .then((payload) => { const data = payload as { workspace?: Workspace | null; persistence?: string }; if (data.workspace?.version === 1) setWorkspace(data.workspace); setSaveState(data.persistence === "unavailable" ? "offline" : "saved"); })
@@ -92,6 +102,24 @@ export function MockMateApp() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("mockmate-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.textSize = preferences.textSize;
+    root.dataset.contrast = preferences.highContrast ? "high" : "standard";
+    root.dataset.reduceMotion = preferences.reduceMotion ? "true" : "false";
+    root.dataset.dyslexiaFont = preferences.dyslexiaFont ? "true" : "false";
+    root.dataset.enhancedFocus = preferences.enhancedFocus ? "true" : "false";
+    if (preferencesLoaded.current) localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
+  }, [preferences]);
+
+  useEffect(() => {
+    const openSettings = (event: KeyboardEvent) => {
+      if (event.altKey && event.key.toLowerCase() === "s") { event.preventDefault(); setSettingsOpen(true); }
+    };
+    document.addEventListener("keydown", openSettings);
+    return () => document.removeEventListener("keydown", openSettings);
+  }, []);
 
   useEffect(() => {
     if (!loaded) return;
@@ -106,6 +134,7 @@ export function MockMateApp() {
   }, [workspace, loaded]);
 
   const activeJob = workspace.jobs.find((job) => job.id === workspace.activeJobId) ?? workspace.jobs[0];
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
   function updateActiveJob(update: Partial<Job> | ((job: Job) => Job)) {
     setWorkspace((current) => ({
@@ -119,6 +148,7 @@ export function MockMateApp() {
   function setStage(stage: StageId) {
     updateActiveJob({ activeStage: stage });
     setMobileNav(false);
+    if (preferences.verboseAnnouncements) setAnnouncement(`Stage ${stage}: ${STAGES.find((item) => item.id === stage)?.label}`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -128,7 +158,7 @@ export function MockMateApp() {
     setStage(1);
   }
 
-  if (!entered) return <Landing onEnter={() => setEntered(true)} />;
+  if (!entered) return <><a className="skip-link" href="#top">Skip to main content</a><Landing onEnter={() => setEntered(true)} onSettings={() => setSettingsOpen(true)} /><SettingsDialog open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={closeSettings} /></>;
 
   const stageComplete = (stage: StageId) => {
     if (stage === 1) return Boolean(activeJob.title && activeJob.description && activeJob.resume);
@@ -141,11 +171,13 @@ export function MockMateApp() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-workspace">Skip to preparation content</a>
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
       <aside className={mobileNav ? "sidebar open" : "sidebar"}>
         <div className="sidebar-top"><button className="brand brand-button" onClick={() => setEntered(false)}><BrandMark /><span>MockMate</span></button><button className="mobile-close" onClick={() => setMobileNav(false)} aria-label="Close navigation">×</button></div>
         <div className="workspace-label">PREP WORKSPACE</div>
         <nav className="stage-nav" aria-label="Preparation stages">
-          {STAGES.map((stage) => <button key={stage.id} className={activeJob.activeStage === stage.id ? "active" : ""} onClick={() => setStage(stage.id)}><span className={stageComplete(stage.id) ? "complete" : ""}>{stageComplete(stage.id) ? "✓" : stage.id}</span><div><b>{stage.label}</b><small>{stage.id === 1 ? "Target & profile" : stage.id === 2 ? "Fit & gaps" : stage.id === 3 ? "Practise & coach" : stage.id === 4 ? "Test your knowledge" : stage.id === 5 ? "Your proof points" : "Readiness at a glance"}</small></div></button>)}
+          {STAGES.map((stage) => <button key={stage.id} className={activeJob.activeStage === stage.id ? "active" : ""} onClick={() => setStage(stage.id)} aria-current={activeJob.activeStage === stage.id ? "step" : undefined}><span className={stageComplete(stage.id) ? "complete" : ""}>{stageComplete(stage.id) ? "✓" : stage.id}<i className="sr-only">{stageComplete(stage.id) ? "Complete" : "Not complete"}</i></span><div><b>{stage.label}</b><small>{stage.id === 1 ? "Target & profile" : stage.id === 2 ? "Fit & gaps" : stage.id === 3 ? "Practise & coach" : stage.id === 4 ? "Test your knowledge" : stage.id === 5 ? "Your proof points" : "Readiness at a glance"}</small></div></button>)}
         </nav>
         <div className="sidebar-card"><span>✦</span><div><b>Prep momentum</b><p>{Math.round((STAGES.filter((stage) => stageComplete(stage.id)).length / 5) * 100)}% of your plan is active</p><div><i style={{ width: `${Math.round((STAGES.filter((stage) => stageComplete(stage.id)).length / 5) * 100)}%` }} /></div></div></div>
         <div className="sidebar-foot"><button><span className="avatar">MC</span><div><b>Maya Chen</b><small>Private workspace</small></div><i>•••</i></button></div>
@@ -154,18 +186,19 @@ export function MockMateApp() {
         <header className="app-header">
           <button className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation">☰</button>
           <div className="job-switcher"><span className="job-dot" /><select value={activeJob.id} onChange={(event) => setWorkspace((current) => ({ ...current, activeJobId: event.target.value }))} aria-label="Current job">{workspace.jobs.map((job) => <option key={job.id} value={job.id}>{job.title || "Untitled role"}{job.company ? ` · ${job.company}` : ""}</option>)}</select><button onClick={addJob} title="Add another job" aria-label="Add another job">＋</button></div>
-          <div className="header-actions"><span className={`save-status ${saveState}`}><i />{saveState === "loading" ? "Loading" : saveState === "saving" ? "Saving" : saveState === "saved" ? "Saved" : "Preview mode"}</span><button className="theme-toggle" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={`Use ${theme === "light" ? "dark" : "light"} mode`}><span>{theme === "light" ? "☼" : "☾"}</span></button><button className="help-button" aria-label="Help">?</button></div>
+          <div className="header-actions"><span className={`save-status ${saveState}`} role="status"><i />{saveState === "loading" ? "Loading" : saveState === "saving" ? "Saving" : saveState === "saved" ? "Saved" : "Preview mode"}</span><button className="theme-toggle" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={`Use ${theme === "light" ? "dark" : "light"} mode`} aria-pressed={theme === "dark"}><span aria-hidden="true">{theme === "light" ? "☼" : "☾"}</span></button><button className="settings-button" onClick={() => setSettingsOpen(true)} aria-label="Open accessibility and language settings" title="Accessibility & language (Alt+S)"><span aria-hidden="true">⚙</span></button><button className="help-button" aria-label="Help">?</button></div>
         </header>
-        <main className="workspace-main">
+        <main className="workspace-main" id="main-workspace" tabIndex={-1}>
           <div className="stage-kicker">STAGE {activeJob.activeStage} OF 6</div>
           {activeJob.activeStage === 1 && <RoleDocuments job={activeJob} templates={workspace.templates} updateJob={updateActiveJob} updateTemplates={(templates) => setWorkspace((current) => ({ ...current, templates }))} onAnalyse={() => setStage(2)} />}
           {activeJob.activeStage === 2 && <CandidateAnalysis job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(3)} />}
-          {activeJob.activeStage === 3 && <MockInterview job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(4)} />}
+          {activeJob.activeStage === 3 && <MockInterview job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(4)} preferences={preferences} announce={setAnnouncement} />}
           {activeJob.activeStage === 4 && <MasteryQuiz job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(5)} />}
           {activeJob.activeStage === 5 && <EvidenceBank job={activeJob} items={workspace.evidenceItems} updateItems={(evidenceItems) => setWorkspace((current) => ({ ...current, evidenceItems }))} onNext={() => setStage(6)} />}
           {activeJob.activeStage === 6 && <Dashboard job={activeJob} evidenceItems={workspace.evidenceItems} onReviewGaps={() => setStage(2)} />}
         </main>
       </div>
+      <SettingsDialog open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={closeSettings} />
     </div>
   );
 }
@@ -277,33 +310,36 @@ function CandidateAnalysis({ job, updateJob, onNext }: { job: Job; updateJob: (u
   </>;
 }
 
-function MockInterview({ job, updateJob, onNext }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onNext: () => void }) {
+function MockInterview({ job, updateJob, onNext, preferences, announce }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onNext: () => void; preferences: AppPreferences; announce: (message: string) => void }) {
   const questions = useMemo(() => generateInterviewQuestions(job), [job]);
-  const [page, setPage] = useState(0); const [selected, setSelected] = useState(0); const [listOpen, setListOpen] = useState(true); const [listening, setListening] = useState(false);
+  const [page, setPage] = useState(0); const [selected, setSelected] = useState(0); const [listOpen, setListOpen] = useState(true);
   const pageQuestions = questions.slice(page * 14, page * 14 + 14); const question = questions[selected]; const answer = job.interviewAnswers[question.id] ?? { text: "", mode: "writing" as const, updatedAt: new Date().toISOString() };
   const attempted = Object.values(job.interviewAnswers).filter((item) => item.text.trim()).length;
   function saveAnswer(next: InterviewAnswer) { updateJob({ interviewAnswers: { ...job.interviewAnswers, [question.id]: next } }); }
-  function coach() { if (!answer.text.trim()) return; saveAnswer({ ...answer, result: coachAnswer(answer.text, question, job), updatedAt: new Date().toISOString() }); }
-  function speakQuestion() { if (!("speechSynthesis" in window)) return; speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(question.prompt)); }
-  function record() {
-    type Recognition = { lang: string; interimResults: boolean; onresult: (event: { results: ArrayLike<{ 0: { transcript: string } }> }) => void; onend: () => void; start: () => void };
-    const Constructor = (window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition }).SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: new () => Recognition }).webkitSpeechRecognition;
-    if (!Constructor) { saveAnswer({ ...answer, mode: "speaking" }); return; }
-    const recognition = new Constructor(); recognition.lang = "en-AU"; recognition.interimResults = false; setListening(true);
-    recognition.onresult = (event) => saveAnswer({ text: `${answer.text} ${event.results[0][0].transcript}`.trim(), mode: "speaking", updatedAt: new Date().toISOString() });
-    recognition.onend = () => setListening(false); recognition.start();
+  function coach() { if (!answer.text.trim()) return; const result = coachAnswer(answer.text, question, job); saveAnswer({ ...answer, result, updatedAt: new Date().toISOString() }); if (preferences.verboseAnnouncements) announce(`Coach score ${result.score} out of 100. ${result.critique[0]}`); }
+  function speakQuestion() {
+    if (!("speechSynthesis" in window)) { announce("Read aloud is not supported in this browser."); return; }
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(question.prompt);
+    utterance.lang = preferences.practiceLanguage;
+    utterance.rate = preferences.speechRate;
+    const preferredVoice = speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith(preferences.practiceLanguage.toLowerCase().split("-")[0]));
+    if (preferredVoice) utterance.voice = preferredVoice;
+    utterance.onstart = () => announce("Reading the interview question aloud.");
+    utterance.onend = () => announce("Question read aloud complete.");
+    speechSynthesis.speak(utterance);
   }
-  function selectQuestion(index: number) { setSelected(index); setPage(Math.floor(index / 14)); if (window.innerWidth < 900) setListOpen(false); }
+  function selectQuestion(index: number) { setSelected(index); setPage(Math.floor(index / 14)); if (preferences.verboseAnnouncements) announce(`Question ${index + 1}: ${questions[index].prompt}`); if (window.innerWidth < 900) setListOpen(false); }
   return <>
     <StageHeading title="Practise the moments that matter." description={`${questions.length} questions generated from this role, your evidence and the gaps worth preparing.`} action={<div className="progress-stat"><strong>{attempted}</strong><span>of {questions.length}<small>attempted</small></span></div>} />
     <div className="interview-shell">
-      <aside className={listOpen ? "question-browser open" : "question-browser"}><div className="question-browser-head"><div><span className="overline">QUESTION SET</span><b>{page * 14 + 1}–{Math.min(page * 14 + 14, questions.length)} of {questions.length}</b></div><button onClick={() => setListOpen(false)}>×</button></div><div className="question-items">{pageQuestions.map((item, index) => { const absolute = page * 14 + index; const saved = job.interviewAnswers[item.id]; return <button key={item.id} className={selected === absolute ? "active" : ""} onClick={() => selectQuestion(absolute)}><span>{saved?.result ? "✓" : item.number.toString().padStart(2, "0")}</span><div><small>{item.category}</small><p>{item.prompt}</p></div>{saved?.result && <b>{saved.result.score}</b>}</button>; })}</div><div className="pagination"><button disabled={page === 0} onClick={() => { setPage(page - 1); setSelected((page - 1) * 14); }}>←</button><span>{page + 1} / {Math.ceil(questions.length / 14)}</span><button disabled={page === Math.ceil(questions.length / 14) - 1} onClick={() => { setPage(page + 1); setSelected((page + 1) * 14); }}>→</button></div></aside>
-      <section className="practice-panel"><button className="question-list-toggle" onClick={() => setListOpen(!listOpen)}>☷ Question list</button><div className="question-meta"><span>{question.category}</span><span>Question {question.number} of {questions.length}</span></div><h2>{question.prompt}</h2><button className="read-button" onClick={speakQuestion}>◖ Read question</button>
-        <div className="answer-mode"><button className={answer.mode === "writing" ? "active" : ""} onClick={() => saveAnswer({ ...answer, mode: "writing" })}>⌨ Writing</button><button className={answer.mode === "speaking" ? "active" : ""} onClick={() => saveAnswer({ ...answer, mode: "speaking" })}>● Speaking</button></div>
-        {answer.mode === "speaking" && <button className={listening ? "record-button listening" : "record-button"} onClick={record}><span>{listening ? "■" : "●"}</span><div><b>{listening ? "Listening…" : "Start speaking"}</b><small>{listening ? "Finish your thought — transcription appears below" : "Browser speech recognition · edit the transcript anytime"}</small></div></button>}
-        <label className="answer-area"><textarea value={answer.text} onChange={(event) => saveAnswer({ ...answer, text: event.target.value, result: undefined, updatedAt: new Date().toISOString() })} placeholder="Shape your answer with context, your specific actions, and a measurable result…" /><span>{answer.text.trim() ? answer.text.trim().split(/\s+/).length : 0} words · aim for 90 seconds</span></label>
+      <aside className={listOpen ? "question-browser open" : "question-browser"} aria-label="Interview question list"><div className="question-browser-head"><div><span className="overline">QUESTION SET</span><b>{page * 14 + 1}–{Math.min(page * 14 + 14, questions.length)} of {questions.length}</b></div><button onClick={() => setListOpen(false)} aria-label="Close question list">×</button></div><div className="question-items">{pageQuestions.map((item, index) => { const absolute = page * 14 + index; const saved = job.interviewAnswers[item.id]; return <button key={item.id} className={selected === absolute ? "active" : ""} onClick={() => selectQuestion(absolute)} aria-current={selected === absolute ? "true" : undefined}><span>{saved?.result ? "✓" : item.number.toString().padStart(2, "0")}</span><div><small>{item.category}</small><p>{item.prompt}</p></div>{saved?.result && <b aria-label={`Coach score ${saved.result.score}`}>{saved.result.score}</b>}</button>; })}</div><div className="pagination"><button disabled={page === 0} onClick={() => { setPage(page - 1); setSelected((page - 1) * 14); }} aria-label="Previous 14 questions">←</button><span>{page + 1} / {Math.ceil(questions.length / 14)}</span><button disabled={page === Math.ceil(questions.length / 14) - 1} onClick={() => { setPage(page + 1); setSelected((page + 1) * 14); }} aria-label="Next 14 questions">→</button></div></aside>
+      <section className="practice-panel" aria-labelledby="current-interview-question"><button className="question-list-toggle" onClick={() => setListOpen(!listOpen)} aria-expanded={listOpen}>☷ Question list</button><div className="question-meta"><span>{question.category}</span><span>Question {question.number} of {questions.length}</span></div><h2 id="current-interview-question">{question.prompt}</h2><button className="read-button" onClick={speakQuestion}>◖ Read question aloud</button>
+        <div className="answer-mode" role="group" aria-label="Answer mode"><button className={answer.mode === "writing" ? "active" : ""} aria-pressed={answer.mode === "writing"} onClick={() => saveAnswer({ ...answer, mode: "writing" })}>⌨ Writing</button><button className={answer.mode === "speaking" ? "active" : ""} aria-pressed={answer.mode === "speaking"} onClick={() => saveAnswer({ ...answer, mode: "speaking" })}>● Speaking</button></div>
+        {answer.mode === "speaking" && <SpeechPractice answerText={answer.text} language={preferences.practiceLanguage} onTranscript={(text) => saveAnswer({ ...answer, text, result: undefined, mode: "speaking", updatedAt: new Date().toISOString() })} onAnnounce={(message) => { if (preferences.verboseAnnouncements) announce(message); }} />}
+        <label className="answer-area"><span className="sr-only">Your interview answer</span><textarea value={answer.text} onChange={(event) => saveAnswer({ ...answer, text: event.target.value, result: undefined, updatedAt: new Date().toISOString() })} placeholder="Shape your answer with context, your specific actions, and a measurable result…" /><span aria-hidden="true">{answer.text.trim() ? answer.text.trim().split(/\s+/).length : 0} words · aim for 90 seconds</span></label>
         <div className="coach-actions"><button className="button button-soft" onClick={() => saveAnswer({ text: "", mode: answer.mode, updatedAt: new Date().toISOString() })}>↻ Reset</button><button className="button button-primary" disabled={!answer.text.trim()} onClick={coach}>✦ Coach my answer</button></div>
-        {answer.result && <div className="coach-result"><div className="coach-score"><span>{answer.result.score}</span><div><small>COACH SCORE</small><b>{answer.result.score >= 85 ? "Interview ready" : answer.result.score >= 70 ? "Strong foundation" : "Needs one more pass"}</b><p>Rubric {answer.result.rubricVersion}</p></div></div><div className="breakdown-grid">{answer.result.breakdown.map((item) => <div key={item.label}><span>{item.label}</span><b>{item.score}</b><div><i style={{ width: `${item.score}%` }} /></div></div>)}</div><div className="feedback-block"><h3>Why this score</h3>{answer.result.critique.map((item) => <p key={item}><span>→</span>{item}</p>)}</div><div className="model-answer"><div><span>✦</span><h3>A model 100-point answer</h3><small>Use the structure, never memorise the script.</small></div><p>{answer.result.modelAnswer}</p></div></div>}
+        {answer.result && <div className="coach-result" aria-live="polite"><div className="coach-score"><span>{answer.result.score}</span><div><small>COACH SCORE</small><b>{answer.result.score >= 85 ? "Interview ready" : answer.result.score >= 70 ? "Strong foundation" : "Needs one more pass"}</b><p>Rubric {answer.result.rubricVersion}</p></div></div><div className="breakdown-grid">{answer.result.breakdown.map((item) => <div key={item.label}><span>{item.label}</span><b>{item.score}</b><div role="progressbar" aria-label={item.label} aria-valuenow={item.score} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${item.score}%` }} /></div></div>)}</div><div className="feedback-block"><h3>Why this score</h3>{answer.result.critique.map((item) => <p key={item}><span>→</span>{item}</p>)}</div><div className="model-answer"><div><span>✦</span><h3>A model 100-point answer</h3><small>Use the structure, never memorise the script.</small></div><p>{answer.result.modelAnswer}</p></div></div>}
       </section>
     </div>
     <div className="stage-next"><div><span>WHEN YOU’RE READY</span><b>Test your role and domain knowledge.</b></div><button className="button button-primary" onClick={onNext}>Open mastery quiz <span>→</span></button></div>

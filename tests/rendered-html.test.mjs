@@ -25,5 +25,7 @@ test("server-renders the finished MockMate product", async () => {
   assert.match(html, /Your experience is strong/);
   assert.match(html, /Build my prep plan/);
   assert.match(html, /Evidence wins interviews/);
+  assert.match(html, /Skip to main content/);
+  assert.match(html, /Accessibility and language settings/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
