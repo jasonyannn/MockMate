@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { SettingsDialog } from "./SettingsDialog";
 import { SpeechPractice } from "./SpeechPractice";
-import { analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "@/lib/ai-service";
+import { AI_SERVICE_CONFIG, analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "@/lib/ai-service";
 import { createBlankJob, createDemoWorkspace, SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@/lib/demo-data";
 import { DEFAULT_PREFERENCES, PREFERENCES_STORAGE_KEY, readPreferences } from "@/lib/preferences";
+import { coachScoreLabel } from "@/lib/scoring-core";
 import type { AppPreferences } from "@/lib/preferences";
 import type { EvidenceItem, InterviewAnswer, Job, ProfileTemplate, QuizAttempt, StageId, Workspace } from "@/lib/types";
 
@@ -21,6 +22,23 @@ const STAGES: { id: StageId; label: string; short: string }[] = [
 
 const formatDate = (value: string) => new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short" }).format(new Date(value));
 const makeId = () => crypto.randomUUID();
+
+function recalibrateWorkspace(workspace: Workspace): Workspace {
+  let changed = false;
+  const jobs = workspace.jobs.map((sourceJob) => {
+    const job = Array.isArray(sourceJob.linkedinDocuments) ? sourceJob : { ...sourceJob, linkedinDocuments: [] };
+    if (job !== sourceJob) changed = true;
+    const questions = new Map(generateInterviewQuestions(job).map((question) => [question.id, question]));
+    const interviewAnswers = Object.fromEntries(Object.entries(job.interviewAnswers).map(([id, answer]) => {
+      const question = questions.get(id);
+      if (!question || !answer.text.trim() || !answer.result || answer.result.rubricVersion === AI_SERVICE_CONFIG.coachingRubricVersion) return [id, answer];
+      changed = true;
+      return [id, { ...answer, result: coachAnswer(answer.text, question, job), updatedAt: new Date().toISOString() }];
+    }));
+    return interviewAnswers === job.interviewAnswers ? job : { ...job, interviewAnswers };
+  });
+  return changed ? { ...workspace, jobs } : workspace;
+}
 
 function BrandMark() {
   return <span className="brand-mark" aria-hidden="true"><span>M</span><i /></span>;
@@ -75,7 +93,7 @@ function Landing({ onEnter, onSettings }: { onEnter: () => void; onSettings: () 
 
 export function MockMateApp() {
   const [entered, setEntered] = useState(false);
-  const [workspace, setWorkspace] = useState<Workspace>(() => createDemoWorkspace());
+  const [workspace, setWorkspace] = useState<Workspace>(() => recalibrateWorkspace(createDemoWorkspace()));
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState<"loading" | "saving" | "saved" | "offline">("loading");
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -93,7 +111,7 @@ export function MockMateApp() {
     queueMicrotask(() => { preferencesLoaded.current = true; setPreferences(savedPreferences); });
     fetch("/api/workspace")
       .then((response) => response.json())
-      .then((payload) => { const data = payload as { workspace?: Workspace | null; persistence?: string }; if (data.workspace?.version === 1) setWorkspace(data.workspace); setSaveState(data.persistence === "unavailable" ? "offline" : "saved"); })
+      .then((payload) => { const data = payload as { workspace?: Workspace | null; persistence?: string }; if (data.workspace?.version === 1) setWorkspace(recalibrateWorkspace(data.workspace)); setSaveState(data.persistence === "unavailable" ? "offline" : "saved"); })
       .catch(() => setSaveState("offline"))
       .finally(() => setLoaded(true));
   }, []);
@@ -413,7 +431,7 @@ function MockInterview({ job, updateJob, onNext, preferences, announce }: { job:
         {answer.mode === "speaking" && <SpeechPractice answerText={answer.text} language={preferences.practiceLanguage} onTranscript={(text) => saveAnswer({ ...answer, text, result: undefined, mode: "speaking", updatedAt: new Date().toISOString() })} onAnnounce={(message) => { if (preferences.verboseAnnouncements) announce(message); }} />}
         <label className="answer-area"><span className="sr-only">Your interview answer</span><textarea value={answer.text} onChange={(event) => saveAnswer({ ...answer, text: event.target.value, result: undefined, updatedAt: new Date().toISOString() })} placeholder="Shape your answer with context, your specific actions, and a measurable result…" /><span aria-hidden="true">{answer.text.trim() ? answer.text.trim().split(/\s+/).length : 0} words · aim for 90 seconds</span></label>
         <div className="coach-actions"><button className="button button-soft" onClick={() => saveAnswer({ text: "", mode: answer.mode, updatedAt: new Date().toISOString() })}>↻ Reset</button><button className="button button-primary" disabled={!answer.text.trim()} onClick={coach}>✦ Coach my answer</button></div>
-        {answer.result && <div className="coach-result" aria-live="polite"><div className="coach-score"><span>{answer.result.score}</span><div><small>COACH SCORE</small><b>{answer.result.score >= 85 ? "Interview ready" : answer.result.score >= 70 ? "Strong foundation" : "Needs one more pass"}</b><p>Rubric {answer.result.rubricVersion}</p></div></div><div className="breakdown-grid">{answer.result.breakdown.map((item) => <div key={item.label}><span>{item.label}</span><b>{item.score}</b><div role="progressbar" aria-label={item.label} aria-valuenow={item.score} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${item.score}%` }} /></div></div>)}</div><div className="feedback-block"><h3>Why this score</h3>{answer.result.critique.map((item) => <p key={item}><span>→</span>{item}</p>)}</div><div className="model-answer"><div><span>✦</span><h3>A model 100-point answer</h3><small>Use the structure, never memorise the script.</small></div><p>{answer.result.modelAnswer}</p></div></div>}
+        {answer.result && <div className="coach-result" aria-live="polite"><div className="coach-score"><span>{answer.result.score}</span><div><small>COACH SCORE</small><b>{coachScoreLabel(answer.result.score)}</b><p>Rubric {answer.result.rubricVersion} · Coaching guidance, not a hiring decision</p></div></div><div className="breakdown-grid">{answer.result.breakdown.map((item) => <div key={item.label}><span>{item.label}</span><b>{item.score}</b><div role="progressbar" aria-label={item.label} aria-valuenow={item.score} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${item.score}%` }} /></div></div>)}</div><div className="feedback-block"><h3>Why this score</h3>{answer.result.critique.map((item) => <p key={item}><span>→</span>{item}</p>)}</div><div className="model-answer"><div><span>✦</span><h3>A behaviorally anchored example</h3><small>Use the evidence pattern, never memorise the script.</small></div><p>{answer.result.modelAnswer}</p></div></div>}
       </section>
     </div>
     <div className="stage-next"><div><span>WHEN YOU’RE READY</span><b>Test your role and domain knowledge.</b></div><button className="button button-primary" onClick={onNext}>Open mastery quiz <span>→</span></button></div>

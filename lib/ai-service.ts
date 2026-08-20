@@ -5,7 +5,7 @@ export const AI_SERVICE_CONFIG = {
   provider: "deterministic-preview",
   temperature: 0,
   analysisRubricVersion: "alignment-v1.0",
-  coachingRubricVersion: "star-coach-v1.0",
+  coachingRubricVersion: "star-coach-v2.0",
   tolerancePoints: 2,
 } as const;
 
@@ -131,10 +131,17 @@ export function generateInterviewQuestions(job: Pick<Job, "title" | "description
 export function coachAnswer(answer: string, question: InterviewQuestion, job: Pick<Job, "title" | "company">): CoachResult {
   const core = scoreAnswerCore(answer, `${question.prompt} ${question.focus}`);
   const critique: string[] = [];
-  if (core.relevance < 70) critique.push(`Anchor the opening directly to ${question.focus.toLowerCase()} so the interviewer hears relevance immediately.`);
-  if (core.structure < 75) critique.push("Make the STAR arc explicit: one sentence of context, your goal, the actions only you took, then the result.");
-  if (core.evidence < 75) critique.push("Add a concrete metric, decision or observable outcome; the current answer asks the interviewer to infer impact.");
-  if (core.concision < 75) critique.push("Tighten the answer to roughly 90 seconds and remove detail that does not change the outcome.");
+  if (core.classification === "non-answer") {
+    critique.push("This does not answer the interview question yet, so no rubric credit was awarded.");
+    critique.push(`Start with one real situation involving ${question.focus.toLowerCase()} and explain why it mattered.`);
+    critique.push("Then describe your personal actions and finish with a measurable or observable result.");
+  } else {
+    if (core.relevance < 65) critique.push(`Anchor the opening directly to ${question.focus.toLowerCase()} and keep every detail tied to that competency.`);
+    if (core.structure < 70) critique.push("Make the STAR arc explicit: the situation, your responsibility, the actions only you took, then the result.");
+    if (core.evidence < 70) critique.push("Add a specific decision, scope and measurable or observable outcome; avoid asking the interviewer to infer impact.");
+    if (core.wordCount < 60) critique.push("Develop this beyond a short summary. A complete interview answer usually needs enough detail to establish context, action and impact.");
+    else if (core.concision < 70) critique.push("Tighten the answer toward a focused 60–120 seconds and remove detail that does not change the evidence.");
+  }
   if (!critique.length) critique.push("The answer is strong. Sharpen it further by naming the hardest trade-off and what you learned.");
   const company = job.company || "the company";
   return {

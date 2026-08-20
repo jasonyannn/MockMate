@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { zipSync } from "fflate";
-import { keywordCoverage, scoreAnswerCore } from "../lib/scoring-core.ts";
+import { coachScoreLabel, keywordCoverage, scoreAnswerCore } from "../lib/scoring-core.ts";
 import { extractLinkedInArchiveText, extractRtfText } from "../lib/document-extract.ts";
 import { analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "../lib/ai-service.ts";
 import { readPreferences } from "../lib/preferences.ts";
@@ -16,9 +16,23 @@ const job = {
 
 test("keyword coverage and answer scoring are reproducible", () => {
   assert.ok(keywordCoverage(resume, description) > 20);
-  const answer = "The situation was falling adoption. My task was to understand why. I interviewed customers, then led the roadmap change. The result was a 31% increase in adoption.";
+  const answer = "At Northstar, our product roadmap was overloaded with sales requests while retention was falling. I was accountable for resetting product strategy without delaying a committed launch. I interviewed 12 customers, analysed usage data, and led engineering, design and sales through a prioritisation workshop. I decided to remove two low-evidence features and redirect the team toward onboarding reliability. Within one quarter, activation increased by 24%, support tickets fell by 18%, and we launched on schedule. The lesson was to make evidence and trade-offs visible before urgency turned into poor strategy.";
   assert.deepEqual(scoreAnswerCore(answer, "Tell me about customer discovery"), scoreAnswerCore(answer, "Tell me about customer discovery"));
-  assert.ok(scoreAnswerCore(answer, "Tell me about customer discovery").total >= 70);
+  assert.ok(scoreAnswerCore(answer, "Tell me about a time you demonstrated product strategy under pressure").total >= 85);
+});
+
+test("coach scoring is behaviorally anchored and rejects non-answers", () => {
+  const question = "Tell me about a time you demonstrated product strategy under pressure";
+  const greeting = scoreAnswerCore("Hi my name is Jason hello my name is Jason", question);
+  const repeated = scoreAnswerCore("Product strategy is important product strategy is important", question);
+  const partial = scoreAnswerCore("The situation was falling adoption. My task was to understand why. I interviewed customers, changed the roadmap, and adoption increased 31%.", question);
+  const strong = scoreAnswerCore("At Northstar, our roadmap was overloaded while retention was falling. I was accountable for resetting product strategy without delaying launch. I interviewed 12 customers, analysed usage data, and led engineering, design and sales through a prioritisation workshop. I decided to remove two low-evidence features and redirect the team toward onboarding reliability. Within one quarter, activation increased by 24%, support tickets fell by 18%, and we launched on schedule. I learned to make evidence and trade-offs visible before urgency turns into poor strategy.", question);
+  assert.deepEqual(greeting, { relevance: 0, structure: 0, evidence: 0, concision: 0, total: 0, wordCount: 10, classification: "non-answer" });
+  assert.ok(repeated.total <= 5);
+  assert.ok(partial.total > greeting.total && partial.total < 30);
+  assert.ok(strong.total >= 85);
+  assert.equal(coachScoreLabel(greeting.total), "No answer to score");
+  assert.equal(coachScoreLabel(strong.total), "Exceptional answer");
 });
 
 test("analysis degrades LinkedIn reputation instead of inventing a score", () => {
