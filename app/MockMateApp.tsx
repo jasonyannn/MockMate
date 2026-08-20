@@ -295,9 +295,9 @@ function CandidateAnalysis({ job, updateJob, onNext }: { job: Job; updateJob: (u
     <StageHeading eyebrow="ANALYSIS COMPLETE" title="You’re a strong match." description="Your experience covers the core of this role. The fastest gain now is making two missing proof points concrete." action={<button className="button button-soft" onClick={reanalyse}>↻ Re-analyse</button>} />
     <div className="score-grid">
       <section className="score-card primary-score"><div className="score-ring" style={{ "--score": analysis.alignmentScore } as CSSProperties}><div><strong>{analysis.alignmentScore}</strong><span>/ 100</span></div></div><div><span className="overline">ALIGNMENT SCORE</span><h2>{analysis.alignmentScore >= 80 ? "Strong match" : analysis.alignmentScore >= 65 ? "Promising match" : "Developing match"}</h2><p>Resume and cover letter evidence against the detected role requirements.</p><small>Rubric {analysis.rubricVersion}</small></div></section>
-      <section className="score-card reputation-card"><div className="empty-score">—</div><div><span className="overline">REPUTATION SCORE</span><h2>{analysis.reputationScore ?? "Not available"}</h2><p>{analysis.reputationScore ? "Based on profile text supplied by you." : "LinkedIn does not provide this data through standard public API access."}</p><button className="text-button" onClick={() => setShowLinkedIn(!showLinkedIn)}>{showLinkedIn ? "Close profile input" : "Add profile text safely →"}</button></div></section>
+      <section className="score-card reputation-card"><div className="empty-score">—</div><div><span className="overline">LINKEDIN EVIDENCE</span><h2>{analysis.reputationScore ?? "Not available"}</h2><p>{analysis.reputationScore ? `Based on the LinkedIn evidence you supplied${(job.linkedinDocuments ?? []).length ? ` across ${(job.linkedinDocuments ?? []).length} file${(job.linkedinDocuments ?? []).length === 1 ? "" : "s"}` : ""}.` : "Add your own export—MockMate never scrapes LinkedIn or invents activity."}</p><button className="text-button" onClick={() => setShowLinkedIn(!showLinkedIn)} aria-expanded={showLinkedIn}>{showLinkedIn ? "Close LinkedIn evidence" : "Attach LinkedIn evidence →"}</button></div></section>
     </div>
-    {showLinkedIn && <section className="linkedin-panel"><div><span>in</span><div><b>No scraping. No invented score.</b><p>Paste text from your LinkedIn PDF export or profile. Official OAuth can be connected later if approved scopes are available.</p></div></div><textarea value={job.linkedinProfileText} onChange={(event) => updateJob({ linkedinProfileText: event.target.value })} placeholder="Paste headline, About and experience text…" /><button className="button button-dark" onClick={reanalyse}>Save & re-analyse</button></section>}
+    {showLinkedIn && <LinkedInEvidencePanel job={job} updateJob={updateJob} onReanalyse={reanalyse} />}
     <div className="analysis-layout">
       <section className="panel competency-panel"><div className="panel-head"><div><span className="overline">COMPETENCY BREAKDOWN</span><h2>Where your match comes from</h2></div><span className="legend"><i /> Your evidence</span></div><div className="competency-list">{analysis.categories.map((category) => <div key={category.label}><div><b>{category.label}</b><span>{category.score}</span></div><div className="bar"><i style={{ width: `${category.score}%` }} /></div><p>{category.note}</p></div>)}</div></section>
       <section className="panel requirements-panel"><div className="panel-head"><div><span className="overline">REQUIREMENTS DETECTED</span><h2>{analysis.requirements.length} role signals</h2></div><span className="mini-pill">Editable</span></div><div className="requirement-list">{analysis.requirements.map((item) => <div key={item.id}><button className={item.covered ? "covered" : "gap"} onClick={() => updateRequirements(analysis.requirements.map((req) => req.id === item.id ? { ...req, covered: !req.covered } : req))}>{item.covered ? "✓" : "!"}</button><span>{item.label}<small>{item.type}</small></span><button className="remove-button" onClick={() => updateRequirements(analysis.requirements.filter((req) => req.id !== item.id))}>×</button></div>)}</div><div className="add-requirement"><input value={requirement} onChange={(event) => setRequirement(event.target.value)} placeholder="Add a missed requirement" onKeyDown={(event) => { if (event.key === "Enter" && requirement.trim()) { updateRequirements([...analysis.requirements, { id: makeId(), label: requirement.trim(), type: "hard", covered: false }]); setRequirement(""); } }} /><button onClick={() => { if (requirement.trim()) { updateRequirements([...analysis.requirements, { id: makeId(), label: requirement.trim(), type: "hard", covered: false }]); setRequirement(""); } }}>＋</button></div></section>
@@ -308,6 +308,80 @@ function CandidateAnalysis({ job, updateJob, onNext }: { job: Job; updateJob: (u
     </div>
     <div className="stage-next"><div><span>NEXT UP</span><b>Turn these signals into confident answers.</b></div><button className="button button-primary" onClick={onNext}>Start mock interview <span>→</span></button></div>
   </>;
+}
+
+function LinkedInEvidencePanel({ job, updateJob, onReanalyse }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onReanalyse: () => void }) {
+  const documents = job.linkedinDocuments ?? [];
+  const [uploading, setUploading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function uploadFiles(fileList: FileList | null) {
+    if (!fileList?.length) return;
+    const available = Math.max(0, 4 - documents.length);
+    if (!available) { setMessage("Remove a LinkedIn file before adding another. Up to four exports can be attached."); return; }
+    const selected = Array.from(fileList).slice(0, available);
+    let nextDocuments = [...documents];
+    setUploading(true); setMessage("");
+    try {
+      for (const file of selected) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("kind", /\.pdf$/i.test(file.name) ? "linkedin-profile" : "linkedin-activity");
+        form.append("jobId", job.id);
+        const response = await fetch("/api/upload", { method: "POST", body: form });
+        const data = await response.json() as { error?: string; document?: Job["linkedinDocuments"][number] };
+        if (!response.ok || !data.document) throw new Error(data.error || `Could not import ${file.name}`);
+        nextDocuments = [...nextDocuments, data.document];
+        updateJob({ linkedinDocuments: nextDocuments });
+      }
+      const skipped = fileList.length - selected.length;
+      setMessage(`${selected.length} LinkedIn file${selected.length === 1 ? "" : "s"} ready for analysis.${skipped > 0 ? ` ${skipped} skipped because the four-file limit was reached.` : ""}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not import that LinkedIn file");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function removeDocument(document: Job["linkedinDocuments"][number]) {
+    setMessage("");
+    try {
+      if (!document.storageKey.startsWith("local-")) {
+        const response = await fetch(`/api/upload?documentId=${encodeURIComponent(document.id)}`, { method: "DELETE" });
+        const data = await response.json() as { error?: string };
+        if (!response.ok) throw new Error(data.error || "Could not remove that file");
+      }
+      updateJob({ linkedinDocuments: documents.filter((item) => item.id !== document.id) });
+      setMessage(`${document.filename} removed from your private workspace.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not remove that file");
+    }
+  }
+
+  return <section className="linkedin-panel" aria-labelledby="linkedin-evidence-title">
+    <div className="linkedin-panel-head"><span aria-hidden="true">in</span><div><b id="linkedin-evidence-title">Use your LinkedIn data safely</b><p>Attach exports you downloaded yourself. MockMate extracts professional profile and activity evidence without scraping LinkedIn.</p></div></div>
+    <div className="linkedin-import-grid">
+      <label className="dropzone linkedin-dropzone">
+        <input type="file" multiple accept=".pdf,.zip,.csv,.json,.txt,.md" disabled={uploading || documents.length >= 4} onChange={(event) => { void uploadFiles(event.target.files); event.currentTarget.value = ""; }} />
+        <span aria-hidden="true">{uploading ? "…" : "↑"}</span>
+        <b>{uploading ? "Reading LinkedIn data" : "Attach profile or activity export"}</b>
+        <small>PDF, ZIP, CSV, JSON or text · up to 50 MB</small>
+      </label>
+      <div className="linkedin-privacy"><b>Private by design</b><p>Your original is kept in private workspace storage. MockMate reads profile, posts, comments, reactions and related professional sections; it ignores messages, contacts, connections and search history.</p></div>
+    </div>
+    {documents.length > 0 && <div className="linkedin-document-list" aria-label="Attached LinkedIn files">{documents.map((document) => <div className="linkedin-file" key={document.id}><span className="file-type">{document.filename.split(".").pop()?.toUpperCase()}</span><div><b>{document.filename}</b><small><i /> {document.characterCount.toLocaleString()} characters ready</small></div><button type="button" onClick={() => void removeDocument(document)} aria-label={`Remove ${document.filename}`}>×</button></div>)}</div>}
+    {message && <p className="linkedin-message" role="status">{message}</p>}
+    <details className="linkedin-guide">
+      <summary>How do I get my LinkedIn files?</summary>
+      <div className="linkedin-guide-steps">
+        <div><span>01</span><p><b>Profile PDF</b>On LinkedIn desktop: Me → View profile → More or Resources → Save to PDF.</p><a href="https://www.linkedin.com/help/linkedin/answer/a541960" target="_blank" rel="noreferrer">LinkedIn PDF instructions ↗</a></div>
+        <div><span>02</span><p><b>Posts, comments and reactions</b>Settings & Privacy → Data privacy → Get a copy of your data. Choose Profile, Positions, Shares, Comments, Reactions and Articles, then request the archive.</p><a href="https://www.linkedin.com/help/linkedin/answer/a1339364" target="_blank" rel="noreferrer">LinkedIn data instructions ↗</a></div>
+      </div>
+      <p className="linkedin-wait-note">LinkedIn emails you when the download is ready. Activity categories can take up to 48 hours and the download link is time-limited.</p>
+    </details>
+    <label className="linkedin-paste-label">Paste profile or activity text <span>Optional</span><textarea value={job.linkedinProfileText} onChange={(event) => updateJob({ linkedinProfileText: event.target.value })} placeholder="Paste your headline, About section, experience, posts or comments…" /></label>
+    <div className="linkedin-actions"><small>Only evidence you provide is analysed.</small><button className="button button-dark" onClick={onReanalyse}>Use evidence & re-analyse</button></div>
+  </section>;
 }
 
 function MockInterview({ job, updateJob, onNext, preferences, announce }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onNext: () => void; preferences: AppPreferences; announce: (message: string) => void }) {

@@ -52,8 +52,9 @@ export function detectRequirements(description: string, resumeText = ""): Requir
   }));
 }
 
-export function analyseCandidate(job: Pick<Job, "description" | "resume" | "coverLetterText" | "portfolioUrl" | "linkedinProfileText">): AnalysisResult {
-  const candidateText = `${job.resume?.extractedText ?? ""}\n${job.coverLetterText}\n${job.linkedinProfileText}`;
+export function analyseCandidate(job: Pick<Job, "description" | "resume" | "coverLetterText" | "portfolioUrl" | "linkedinProfileText" | "linkedinDocuments">): AnalysisResult {
+  const linkedinText = [job.linkedinProfileText, ...(job.linkedinDocuments ?? []).map((document) => document.extractedText)].filter(Boolean).join("\n");
+  const candidateText = `${job.resume?.extractedText ?? ""}\n${job.coverLetterText}\n${linkedinText}`;
   const requirements = detectRequirements(job.description, candidateText);
   const baseCoverage = keywordCoverage(candidateText, job.description);
   const coveredRatio = requirements.length ? requirements.filter((item) => item.covered).length / requirements.length : 0;
@@ -77,7 +78,7 @@ export function analyseCandidate(job: Pick<Job, "description" | "resume" | "cove
   return {
     id: id("analysis", `${candidateText}${job.description}${now.slice(0, 13)}`),
     alignmentScore,
-    reputationScore: job.linkedinProfileText.trim().length > 120 ? Math.min(93, 58 + Math.round(keywordCoverage(job.linkedinProfileText, job.description) * 0.35)) : null,
+    reputationScore: linkedinText.trim().length > 120 ? Math.min(93, 58 + Math.round(keywordCoverage(linkedinText, job.description) * 0.35)) : null,
     categories: [
       { label: "Technical skills", score: technical, note: "Role tools, platform fluency and delivery evidence" },
       { label: "Domain experience", score: domain, note: "Relevant customer, market and problem context" },

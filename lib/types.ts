@@ -86,6 +86,7 @@ export type Job = {
   portfolioUrl: string;
   linkedinUrl: string;
   linkedinProfileText: string;
+  linkedinDocuments: DocumentRecord[];
   templateId: string | null;
   activeStage: StageId;
   analysis: AnalysisResult | null;

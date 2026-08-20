@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { zipSync } from "fflate";
 import { keywordCoverage, scoreAnswerCore } from "../lib/scoring-core.ts";
-import { extractRtfText } from "../lib/document-extract.ts";
+import { extractLinkedInArchiveText, extractRtfText } from "../lib/document-extract.ts";
 import { analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "../lib/ai-service.ts";
 import { readPreferences } from "../lib/preferences.ts";
 
@@ -10,7 +11,7 @@ const description = "Lead AI product strategy, customer discovery, cross-functio
 const job = {
   id: "job-test", title: "Senior Product Manager", company: "Test Co", description,
   resume: { id: "doc", filename: "resume.txt", contentType: "text/plain", storageKey: "test", extractedText: resume, characterCount: resume.length, status: "extracted" },
-  coverLetterText: "I lead measurable customer outcomes.", portfolioUrl: "", linkedinProfileText: "", analysis: null,
+  coverLetterText: "I lead measurable customer outcomes.", portfolioUrl: "", linkedinProfileText: "", linkedinDocuments: [], analysis: null,
 };
 
 test("keyword coverage and answer scoring are reproducible", () => {
@@ -46,6 +47,19 @@ test("coaching identifies quantified, structured answers", () => {
 
 test("RTF extraction preserves human-readable text", () => {
   assert.match(extractRtfText("{\\rtf1\\ansi Hello\\par World}"), /Hello\nWorld/);
+});
+
+test("LinkedIn archives extract professional activity and ignore private messages", () => {
+  const encoder = new TextEncoder();
+  const archive = zipSync({
+    "Shares.csv": encoder.encode("Date,ShareCommentary\n2026-01-01,Led a product strategy workshop"),
+    "Comments.csv": encoder.encode("Date,Comment\n2026-01-02,Great customer discovery example"),
+    "messages.csv": encoder.encode("Secret private conversation"),
+  });
+  const extracted = extractLinkedInArchiveText(archive);
+  assert.match(extracted, /product strategy workshop/);
+  assert.match(extracted, /customer discovery example/);
+  assert.doesNotMatch(extracted, /private conversation/);
 });
 
 test("accessibility preferences safely merge with defaults", () => {
