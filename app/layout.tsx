@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import "@fontsource-variable/atkinson-hyperlegible-next/wght.css";
+import "@fontsource-variable/atkinson-hyperlegible-next/wght-italic.css";
+import "@fontsource-variable/bitter/wght.css";
+import "@fontsource-variable/bitter/wght-italic.css";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
