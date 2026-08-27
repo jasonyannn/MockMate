@@ -105,6 +105,7 @@ export type Job = {
   analysis: AnalysisResult | null;
   analysisHistory: { score: number; at: string }[];
   interviewQuestions?: InterviewQuestion[];
+  customInterviewQuestions?: InterviewQuestion[];
   interviewAnswers: Record<string, InterviewAnswer>;
   quizAttempts: QuizAttempt[];
   createdAt: string;

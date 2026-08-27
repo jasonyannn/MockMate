@@ -62,6 +62,21 @@ test("coaching identifies quantified, structured answers", () => {
   assert.equal(strong.provenance.mode, "deterministic-fallback");
 });
 
+test("new jobs can persist user-authored interview questions and coach their answers", () => {
+  const customQuestion = {
+    id: "custom-q-1",
+    number: 113,
+    category: "Your question",
+    prompt: "Tell me about a time you influenced a difficult stakeholder without formal authority.",
+    focus: "the capability this question is testing",
+  };
+  const savedJob = { ...job, customInterviewQuestions: [customQuestion] };
+  assert.equal(savedJob.customInterviewQuestions[0].prompt, customQuestion.prompt);
+  const result = coachAnswer("I enjoy working with stakeholders.", customQuestion, { title: "Product Manager", company: "Test Co" });
+  assert.ok(result.critique.length >= 1);
+  assert.match(result.modelAnswer, /capability this question is testing/i);
+});
+
 test("RTF extraction preserves human-readable text", () => {
   assert.match(extractRtfText("{\\rtf1\\ansi Hello\\par World}"), /Hello\nWorld/);
 });

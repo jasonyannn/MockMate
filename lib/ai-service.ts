@@ -132,13 +132,14 @@ export function generateInterviewQuestions(job: Pick<Job, "title" | "description
 
 export function coachAnswer(answer: string, question: InterviewQuestion, job: Pick<Job, "title" | "company">): CoachResult {
   const core = scoreAnswerCore(answer, `${question.prompt} ${question.focus}`);
+  const focusLabel = question.category === "Your question" ? "the capability this question is testing" : question.focus.toLowerCase();
   const critique: string[] = [];
   if (core.classification === "non-answer") {
     critique.push("This does not answer the interview question yet, so no rubric credit was awarded.");
-    critique.push(`Start with one real situation involving ${question.focus.toLowerCase()} and explain why it mattered.`);
+    critique.push(`Start with one real situation involving ${focusLabel} and explain why it mattered.`);
     critique.push("Then describe your personal actions and finish with a measurable or observable result.");
   } else {
-    if (core.relevance < 65) critique.push(`Anchor the opening directly to ${question.focus.toLowerCase()} and keep every detail tied to that competency.`);
+    if (core.relevance < 65) critique.push(`Anchor the opening directly to ${focusLabel} and keep every detail tied to that competency.`);
     if (core.structure < 70) critique.push("Make the STAR arc explicit: the situation, your responsibility, the actions only you took, then the result.");
     if (core.evidence < 70) critique.push("Add a specific decision, scope and measurable or observable outcome; avoid asking the interviewer to infer impact.");
     if (core.wordCount < 60) critique.push("Develop this beyond a short summary. A complete interview answer usually needs enough detail to establish context, action and impact.");
@@ -155,7 +156,7 @@ export function coachAnswer(answer: string, question: InterviewQuestion, job: Pi
       { label: "Concision", score: core.concision },
     ],
     critique,
-    modelAnswer: `At my previous company, we had a clear challenge around ${question.focus.toLowerCase()}: the team was moving quickly, but customer evidence and delivery priorities were not aligned. I was accountable for creating a decision everyone could act on. I brought product, design and engineering together around the highest-risk assumptions, spoke with 12 customers, and turned the findings into a sequenced plan with one measurable outcome per release. I also set a weekly decision review so trade-offs stayed visible. Within one quarter, adoption increased by 24% and delivery predictability improved by 18%. The lesson I would bring to the ${job.title} role at ${company} is to make evidence, ownership and success measures explicit before accelerating execution.`,
+    modelAnswer: `At my previous company, we had a clear challenge around ${focusLabel}: the team was moving quickly, but customer evidence and delivery priorities were not aligned. I was accountable for creating a decision everyone could act on. I brought product, design and engineering together around the highest-risk assumptions, spoke with 12 customers, and turned the findings into a sequenced plan with one measurable outcome per release. I also set a weekly decision review so trade-offs stayed visible. Within one quarter, adoption increased by 24% and delivery predictability improved by 18%. The lesson I would bring to the ${job.title} role at ${company} is to make evidence, ownership and success measures explicit before accelerating execution.`,
     rubricVersion: AI_SERVICE_CONFIG.coachingRubricVersion,
     provenance: { mode: "deterministic-fallback", model: null, generatedAt: new Date().toISOString(), reason: "Model service was not used" },
   };

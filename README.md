@@ -1,6 +1,6 @@
 # MockMate
 
-MockMate turns a target job, resume and supporting profile into an evidence-backed preparation plan. The application includes independently named resume and cover-letter libraries, optional application kits that pair them, AI-assisted candidate-to-role analysis, 112 role-specific interview questions, behaviorally anchored interview scoring with AI coaching, adaptive mastery quizzes, a user-level evidence bank, readiness trends, document extraction, responsive layouts and persisted light/dark themes.
+MockMate turns a target job, resume and supporting profile into an evidence-backed preparation plan. The application includes independently named resume and cover-letter libraries, optional application kits that pair them, AI-assisted candidate-to-role analysis, role-specific and user-authored interview questions, behaviorally anchored interview scoring with AI coaching, adaptive mastery quizzes, a user-level evidence bank, readiness trends, document extraction, responsive layouts and persisted light/dark themes.
 
 The public landing page uses Sign in with ChatGPT for account creation and sign-in. This is separate from Gmail/Google OAuth: MockMate receives a stable Site-specific user ID and email from the hosting platform, stores the account in D1, and isolates every workspace and uploaded document by that user ID. Anonymous visitors can view the landing page but cannot read, save, upload, or use personalised coaching endpoints.
 
