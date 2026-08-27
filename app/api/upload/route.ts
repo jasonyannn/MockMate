@@ -17,6 +17,8 @@ function safeFilename(value: string): string {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const user = requestUser(request);
+  if (!user) return Response.json({ error: "Sign in to upload documents" }, { status: 401 });
   const { DB, DOCUMENTS } = runtimeEnv();
   if (!DB || !DOCUMENTS) return Response.json({ error: "Document storage is unavailable" }, { status: 503 });
   const form = await request.formData();
@@ -32,7 +34,11 @@ export async function POST(request: Request): Promise<Response> {
   if (!allowedExtensions.has(extension)) return Response.json({ error: isLinkedIn ? "Use a LinkedIn PDF, ZIP, CSV, JSON, TXT, or MD file" : "Use PDF, DOCX, TXT, MD, RTF, or PPTX" }, { status: 415 });
   if (file.size > maxBytes) return Response.json({ error: `Files must be ${isLinkedIn ? 50 : 12} MB or smaller` }, { status: 413 });
 
-  const user = requestUser(request);
+  if (jobId) {
+    await ensureApiTables(DB);
+    const jobOwner = await DB.prepare("SELECT user_id FROM jobs WHERE id = ?").bind(jobId).first<{ user_id: string }>();
+    if (jobOwner && jobOwner.user_id !== user.id) return Response.json({ error: "You cannot attach documents to that workspace" }, { status: 403 });
+  }
   const documentId = crypto.randomUUID();
   const storageKey = `${user.id}/${documentId}-${safeFilename(file.name)}`;
   const bytes = await file.arrayBuffer();
@@ -76,11 +82,12 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 export async function DELETE(request: Request): Promise<Response> {
+  const user = requestUser(request);
+  if (!user) return Response.json({ error: "Sign in to remove documents" }, { status: 401 });
   const { DB, DOCUMENTS } = runtimeEnv();
   if (!DB || !DOCUMENTS) return Response.json({ error: "Document storage is unavailable" }, { status: 503 });
   const documentId = new URL(request.url).searchParams.get("documentId");
   if (!documentId) return Response.json({ error: "A document ID is required" }, { status: 400 });
-  const user = requestUser(request);
   await ensureApiTables(DB);
   const row = await DB.prepare("SELECT storage_key FROM job_documents WHERE id = ? AND user_id = ?")
     .bind(documentId, user.id)

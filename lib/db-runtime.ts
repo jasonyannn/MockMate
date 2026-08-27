@@ -11,11 +11,17 @@ export function runtimeEnv(): RuntimeEnv {
   return cloudflareEnv as unknown as RuntimeEnv;
 }
 
-export function requestUser(request: Request): { id: string; email: string | null; name: string | null } {
-  const id = request.headers.get("oai-authenticated-user-id") ?? "local-preview-user";
+export type RequestUser = { id: string; email: string; name: string | null };
+
+export function requestUser(request: Request): RequestUser | null {
+  const id = request.headers.get("oai-authenticated-user-id");
   const email = request.headers.get("oai-authenticated-user-email");
+  if (!id || !email) return null;
+
   const encodedName = request.headers.get("oai-authenticated-user-full-name");
-  const encoding = request.headers.get("oai-authenticated-user-full-name-encoding");
+  const encoding = request.headers.get(
+    "oai-authenticated-user-full-name-encoding",
+  );
   let name: string | null = null;
   if (encodedName && encoding === "percent-encoded-utf-8") {
     try {
@@ -24,6 +30,7 @@ export function requestUser(request: Request): { id: string; email: string | nul
       name = null;
     }
   }
+
   return { id, email, name };
 }
 

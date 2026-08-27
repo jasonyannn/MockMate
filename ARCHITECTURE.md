@@ -15,7 +15,7 @@ MockMate is a responsive, mobile-ready web application first. The production UI 
 - **Scoring:** Interview numbers come from the versioned behaviorally anchored rubric in `lib/scoring-core.ts`; the model cannot rescore or inflate them. AI supplies semantic feedback and an illustrative answer. Candidate alignment combines model semantic assessment, category scores, and explicit requirement coverage. Every AI result records model/fallback provenance.
 - **Fallback:** When `OPENAI_API_KEY` is absent, the model times out, or structured output fails validation, the API returns the existing deterministic engine with explicit `deterministic-fallback` provenance. This preserves the workflow without representing heuristics as AI.
 - **Speech:** Browser Web Speech API for speech-to-text and speech synthesis for text-to-speech. A hosted provider can replace this adapter for iOS and wrapped-app reliability.
-- **Authentication:** Owner-private hosting authentication for this production preview. A public SaaS launch should add a supported public identity provider with email/password and Google OAuth; scraping LinkedIn is explicitly excluded.
+- **Authentication:** The public landing page uses dispatch-owned Sign in with ChatGPT. Signed-in visitors receive a stable Site-specific user ID and email; MockMate stores the account in D1 and enforces that identity on every workspace, upload, deletion and personalised coaching request. Anonymous visitors cannot reach personal data. Gmail/Google OAuth and app-owned passwords are intentionally excluded from this release.
 
 ## Data model
 

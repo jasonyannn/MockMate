@@ -6,7 +6,7 @@ import { SettingsDialog } from "./SettingsDialog";
 import { SpeechPractice } from "./SpeechPractice";
 import { getAIStatus, requestAI } from "@/lib/ai-client";
 import { AI_SERVICE_CONFIG, analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "@/lib/ai-service";
-import { createBlankJob, createDemoWorkspace, SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@/lib/demo-data";
+import { createBlankJob, createBlankWorkspace, SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@/lib/demo-data";
 import { DEFAULT_PREFERENCES, PREFERENCES_STORAGE_KEY, readPreferences } from "@/lib/preferences";
 import { coachScoreLabel } from "@/lib/scoring-core";
 import { documentDisplayName, normalizeDocumentLibrary } from "@/lib/document-library";
@@ -62,19 +62,21 @@ function WorkflowStatus({ job, completed, aiStatus }: { job: Job; completed: num
   </section>;
 }
 
-function Landing({ onEnter, onSettings }: { onEnter: () => void; onSettings: () => void }) {
+type MockMateUser = { userId: string; displayName: string; email: string; fullName: string | null };
+
+function Landing({ user, signInPath, onEnter, onSettings }: { user: MockMateUser | null; signInPath: string; onEnter: () => void; onSettings: () => void }) {
   return (
     <main className="landing">
       <nav className="landing-nav" aria-label="Main navigation">
         <a className="brand" href="#top" aria-label="MockMate home"><BrandMark /><span>MockMate</span></a>
-        <div className="landing-links"><a href="#how">How it works</a><a href="#proof">Why it works</a><button className="landing-settings" onClick={onSettings} aria-label="Accessibility and language settings" title="Accessibility & language (Alt+S)">⚙</button><button className="button button-ghost" onClick={onEnter}>Sign in</button><button className="button button-dark" onClick={onEnter}>Start preparing <span>↗</span></button></div>
+        <div className="landing-links"><a href="#how">How it works</a><a href="#proof">Why it works</a><button className="landing-settings" onClick={onSettings} aria-label="Accessibility and language settings" title="Accessibility & language (Alt+S)">⚙</button>{user ? <button className="button button-ghost" onClick={onEnter}>Welcome, {user.displayName.split(" ")[0]}</button> : <a className="button button-ghost" href={signInPath}>Sign in</a>}{user ? <button className="button button-dark" onClick={onEnter}>Open workspace <span>↗</span></button> : <a className="button button-dark" href={signInPath}>Create account <span>↗</span></a>}</div>
       </nav>
       <section id="top" className="hero">
         <div className="hero-copy">
           <span className="eyebrow"><i /> Built for the role you actually want</span>
           <h1>Your experience is strong.<br /><em>Make the evidence impossible to miss.</em></h1>
           <p>Turn any job description into a focused preparation plan — with candidate analysis, realistic interview coaching and a reusable bank of your strongest proof points.</p>
-          <div className="hero-actions"><button className="button button-primary button-large" onClick={onEnter}>Build my prep plan <span>→</span></button><span className="microcopy">Private by default · No credit card</span></div>
+          <div className="hero-actions">{user ? <button className="button button-primary button-large" onClick={onEnter}>Open my prep plan <span>→</span></button> : <a className="button button-primary button-large" href={signInPath}>Create my account <span>→</span></a>}<span className="microcopy">Private workspace · No Gmail connection · No credit card</span></div>
           <div className="hero-trust"><span>One workspace</span><b>Role fit</b><i>·</i><b>Interview practice</b><i>·</i><b>Evidence mastery</b></div>
         </div>
         <div className="hero-visual" aria-label="MockMate candidate analysis preview">
@@ -104,14 +106,14 @@ function Landing({ onEnter, onSettings }: { onEnter: () => void; onSettings: () 
           <article><span>✦</span><h3>Build reusable proof</h3><p>Turn achievements into a living evidence bank you can reuse across every application.</p></article>
         </div>
       </section>
-      <footer className="landing-footer"><a className="brand" href="#top"><BrandMark /><span>MockMate</span></a><p>Evidence wins interviews.</p><button className="text-button" onClick={onEnter}>Open private workspace →</button></footer>
+      <footer className="landing-footer"><a className="brand" href="#top"><BrandMark /><span>MockMate</span></a><p>Evidence wins interviews.</p>{user ? <button className="text-button" onClick={onEnter}>Open private workspace →</button> : <a className="text-button" href={signInPath}>Create account or sign in →</a>}</footer>
     </main>
   );
 }
 
-export function MockMateApp() {
+export function MockMateApp({ user, signInPath, signOutPath }: { user: MockMateUser | null; signInPath: string; signOutPath: string }) {
   const [entered, setEntered] = useState(false);
-  const [workspace, setWorkspace] = useState<Workspace>(() => recalibrateWorkspace(createDemoWorkspace()));
+  const [workspace, setWorkspace] = useState<Workspace>(() => recalibrateWorkspace(createBlankWorkspace()));
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState<"loading" | "saving" | "saved" | "offline">("loading");
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -128,12 +130,13 @@ export function MockMateApp() {
     if (savedTheme === "dark") queueMicrotask(() => setTheme("dark"));
     const savedPreferences = readPreferences(localStorage.getItem(PREFERENCES_STORAGE_KEY));
     queueMicrotask(() => { preferencesLoaded.current = true; setPreferences(savedPreferences); });
+    if (!user) return;
     fetch("/api/workspace")
       .then((response) => response.json())
-      .then((payload) => { const data = payload as { workspace?: Workspace | null; persistence?: string }; if (data.workspace?.version === 1) setWorkspace(recalibrateWorkspace(data.workspace)); setSaveState(data.persistence === "unavailable" ? "offline" : "saved"); })
+      .then((payload) => { const data = payload as { workspace?: Workspace | null; persistence?: string }; setWorkspace(data.workspace?.version === 1 ? recalibrateWorkspace(data.workspace) : recalibrateWorkspace(createBlankWorkspace())); setSaveState(data.persistence === "unavailable" ? "offline" : "saved"); })
       .catch(() => setSaveState("offline"))
       .finally(() => setLoaded(true));
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     getAIStatus().then(setAIStatus).catch(() => setAIStatus({ configured: false, model: AI_SERVICE_CONFIG.model, provider: "deterministic-fallback" }));
@@ -163,7 +166,7 @@ export function MockMateApp() {
   }, []);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!user || !loaded) return;
     if (firstSave.current) firstSave.current = false;
     const timer = window.setTimeout(() => {
       setSaveState("saving");
@@ -172,7 +175,7 @@ export function MockMateApp() {
         .catch(() => setSaveState("offline"));
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [workspace, loaded]);
+  }, [workspace, loaded, user]);
 
   const activeJob = workspace.jobs.find((job) => job.id === workspace.activeJobId) ?? workspace.jobs[0];
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
@@ -199,7 +202,7 @@ export function MockMateApp() {
     setStage(1);
   }
 
-  if (!entered) return <><a className="skip-link" href="#top">Skip to main content</a><Landing onEnter={() => setEntered(true)} onSettings={() => setSettingsOpen(true)} /><SettingsDialog open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={closeSettings} /></>;
+  if (!entered) return <><a className="skip-link" href="#top">Skip to main content</a><Landing user={user} signInPath={signInPath} onEnter={() => setEntered(true)} onSettings={() => setSettingsOpen(true)} /><SettingsDialog open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={closeSettings} /></>;
 
   const stageComplete = (stage: StageId) => {
     if (stage === 1) return Boolean(activeJob.title && activeJob.description && activeJob.resume);
@@ -222,7 +225,7 @@ export function MockMateApp() {
           {STAGES.map((stage) => <button key={stage.id} className={activeJob.activeStage === stage.id ? "active" : ""} onClick={() => setStage(stage.id)} aria-current={activeJob.activeStage === stage.id ? "step" : undefined}><span className={stageComplete(stage.id) ? "complete" : ""}>{stageComplete(stage.id) ? "✓" : stage.id}<i className="sr-only">{stageComplete(stage.id) ? "Complete" : "Not complete"}</i></span><div><b>{stage.label}</b><small>{stage.id === 1 ? "Target & profile" : stage.id === 2 ? "Fit & gaps" : stage.id === 3 ? "Practise & coach" : stage.id === 4 ? "Test your knowledge" : stage.id === 5 ? "Your proof points" : "Readiness at a glance"}</small></div></button>)}
         </nav>
         <div className="sidebar-card"><span>✦</span><div><b>Prep momentum</b><p>{Math.round((completedStages / 5) * 100)}% of your plan is verified</p><div><i style={{ width: `${Math.round((completedStages / 5) * 100)}%` }} /></div></div></div>
-        <div className="sidebar-foot"><button><span className="avatar">MC</span><div><b>Maya Chen</b><small>Private workspace</small></div><i>•••</i></button></div>
+        <div className="sidebar-foot"><a href={signOutPath} title="Sign out of MockMate"><span className="avatar">{user?.displayName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "MM"}</span><div><b>{user?.displayName || "MockMate user"}</b><small>{user?.email || "Private account"}</small></div><i>Sign out</i></a></div>
       </aside>
       <div className="app-body">
         <header className="app-header">

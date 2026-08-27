@@ -61,6 +61,7 @@ async function responseJSON(request: Request, schemaName: string, schema: JSONSc
   if (!env.OPENAI_API_KEY) throw new Error("missing-api-key");
   const model = env.OPENAI_MODEL || AI_SERVICE_CONFIG.model;
   const user = requestUser(request);
+  if (!user) throw new Error("unauthenticated-request");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 35_000);
   try {
@@ -310,6 +311,7 @@ export async function GET(): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  if (!requestUser(request)) return Response.json({ error: "Sign in to use MockMate coaching" }, { status: 401, headers: noStoreHeaders });
   let body: unknown;
   try {
     body = await request.json();

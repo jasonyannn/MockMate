@@ -69,6 +69,19 @@ export function createBlankJob(): Job {
   };
 }
 
+export function createBlankWorkspace(): Workspace {
+  const job = createBlankJob();
+  return {
+    version: 1,
+    activeJobId: job.id,
+    jobs: [job],
+    templates: [],
+    resumeLibrary: [],
+    coverLetterLibrary: [],
+    evidenceItems: [],
+  };
+}
+
 export function createDemoWorkspace(): Workspace {
   const baseJob: Job = {
     id: "job-ai-product",
