@@ -5,6 +5,7 @@ import { coachScoreLabel, keywordCoverage, scoreAnswerCore } from "../lib/scorin
 import { extractLinkedInArchiveText, extractRtfText } from "../lib/document-extract.ts";
 import { analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "../lib/ai-service.ts";
 import { readPreferences } from "../lib/preferences.ts";
+import { documentDisplayName, normalizeDocumentLibrary } from "../lib/document-library.ts";
 
 const resume = "Led AI product strategy and customer discovery. Increased adoption by 31% and worked cross-functionally with engineering and design.";
 const description = "Lead AI product strategy, customer discovery, cross-functional delivery, analytics and executive communication.";
@@ -38,6 +39,7 @@ test("coach scoring is behaviorally anchored and rejects non-answers", () => {
 test("analysis degrades LinkedIn reputation instead of inventing a score", () => {
   const result = analyseCandidate(job);
   assert.equal(result.reputationScore, null);
+  assert.equal(result.provenance.mode, "deterministic-fallback");
   assert.ok(result.alignmentScore >= 50 && result.alignmentScore <= 100);
   assert.ok(result.requirements.length >= 3);
 });
@@ -57,6 +59,7 @@ test("coaching identifies quantified, structured answers", () => {
   const weak = coachAnswer("I am good at this and enjoy working with teams.", question, job);
   assert.ok(strong.score > weak.score);
   assert.equal(strong.breakdown.length, 4);
+  assert.equal(strong.provenance.mode, "deterministic-fallback");
 });
 
 test("RTF extraction preserves human-readable text", () => {
@@ -82,4 +85,24 @@ test("accessibility preferences safely merge with defaults", () => {
   assert.equal(preferences.practiceLanguage, "fr-FR");
   assert.equal(preferences.enhancedFocus, true);
   assert.equal(readPreferences("not-json").practiceLanguage, "en-AU");
+});
+
+test("document library keeps resumes and cover letters independent with optional kits", () => {
+  const resumeItem = { id: "resume-1", name: "Product — AI", document: job.resume, updatedAt: new Date().toISOString() };
+  const coverItem = { id: "cover-1", name: "AI platform opener", document: null, text: "I build responsible AI products.", updatedAt: new Date().toISOString() };
+  const kit = { id: "kit-1", name: "AI roles", resumeLibraryId: resumeItem.id, coverLetterLibraryId: coverItem.id, resume: job.resume, coverLetterDocument: null, coverLetterText: coverItem.text, portfolioUrl: "", linkedinUrl: "", updatedAt: new Date().toISOString() };
+  assert.equal(kit.resumeLibraryId, resumeItem.id);
+  assert.equal(kit.coverLetterLibraryId, coverItem.id);
+  assert.equal(documentDisplayName("Product_Manager-AI_v3.pdf"), "Product Manager AI v3");
+});
+
+test("legacy saved workspaces are upgraded into the document library", () => {
+  const timestamp = new Date().toISOString();
+  const legacyJob = { ...job, company: "Test Co", linkedinProfileText: "", linkedinDocuments: [], templateId: "kit-legacy", activeStage: 1, analysis: null, analysisHistory: [], interviewQuestions: [], interviewAnswers: {}, quizAttempts: [], createdAt: timestamp, updatedAt: timestamp };
+  const legacy = { version: 1, activeJobId: legacyJob.id, jobs: [legacyJob], templates: [{ id: "kit-legacy", name: "Legacy profile", resume: job.resume, coverLetterDocument: null, coverLetterText: job.coverLetterText, portfolioUrl: "", linkedinUrl: "", updatedAt: timestamp }], evidenceItems: [] };
+  const upgraded = normalizeDocumentLibrary(legacy);
+  assert.equal(upgraded.resumeLibrary.length, 1);
+  assert.equal(upgraded.coverLetterLibrary.length, 1);
+  assert.ok(upgraded.jobs[0].resumeLibraryId);
+  assert.ok(upgraded.jobs[0].coverLetterLibraryId);
 });

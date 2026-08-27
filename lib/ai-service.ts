@@ -2,9 +2,10 @@ import { keywordCoverage, scoreAnswerCore, stableHash, tokenize } from "./scorin
 import type { AnalysisResult, CoachResult, InterviewQuestion, Job, QuizQuestion, Requirement } from "./types.ts";
 
 export const AI_SERVICE_CONFIG = {
-  provider: "deterministic-preview",
+  provider: "openai-responses-with-deterministic-fallback",
+  model: "gpt-5.4-mini",
   temperature: 0,
-  analysisRubricVersion: "alignment-v1.0",
+  analysisRubricVersion: "alignment-v2.0",
   coachingRubricVersion: "star-coach-v2.0",
   tolerancePoints: 2,
 } as const;
@@ -90,6 +91,7 @@ export function analyseCandidate(job: Pick<Job, "description" | "resume" | "cove
     requirements,
     createdAt: now,
     rubricVersion: AI_SERVICE_CONFIG.analysisRubricVersion,
+    provenance: { mode: "deterministic-fallback", model: null, generatedAt: now, reason: "Model service was not used" },
   };
 }
 
@@ -155,6 +157,7 @@ export function coachAnswer(answer: string, question: InterviewQuestion, job: Pi
     critique,
     modelAnswer: `At my previous company, we had a clear challenge around ${question.focus.toLowerCase()}: the team was moving quickly, but customer evidence and delivery priorities were not aligned. I was accountable for creating a decision everyone could act on. I brought product, design and engineering together around the highest-risk assumptions, spoke with 12 customers, and turned the findings into a sequenced plan with one measurable outcome per release. I also set a weekly decision review so trade-offs stayed visible. Within one quarter, adoption increased by 24% and delivery predictability improved by 18%. The lesson I would bring to the ${job.title} role at ${company} is to make evidence, ownership and success measures explicit before accelerating execution.`,
     rubricVersion: AI_SERVICE_CONFIG.coachingRubricVersion,
+    provenance: { mode: "deterministic-fallback", model: null, generatedAt: new Date().toISOString(), reason: "Model service was not used" },
   };
 }
 

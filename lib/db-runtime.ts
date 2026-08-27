@@ -3,6 +3,8 @@ import { env as cloudflareEnv } from "cloudflare:workers";
 type RuntimeEnv = {
   DB?: D1Database;
   DOCUMENTS?: R2Bucket;
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
 };
 
 export function runtimeEnv(): RuntimeEnv {

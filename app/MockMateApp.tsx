@@ -4,12 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { SettingsDialog } from "./SettingsDialog";
 import { SpeechPractice } from "./SpeechPractice";
+import { getAIStatus, requestAI } from "@/lib/ai-client";
 import { AI_SERVICE_CONFIG, analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "@/lib/ai-service";
 import { createBlankJob, createDemoWorkspace, SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@/lib/demo-data";
 import { DEFAULT_PREFERENCES, PREFERENCES_STORAGE_KEY, readPreferences } from "@/lib/preferences";
 import { coachScoreLabel } from "@/lib/scoring-core";
+import { documentDisplayName, normalizeDocumentLibrary } from "@/lib/document-library";
 import type { AppPreferences } from "@/lib/preferences";
-import type { EvidenceItem, InterviewAnswer, Job, ProfileTemplate, QuizAttempt, StageId, Workspace } from "@/lib/types";
+import type { AIProvenance, AnalysisResult, CoachResult, EvidenceItem, InterviewAnswer, InterviewQuestion, Job, ProfileTemplate, QuizAttempt, QuizQuestion, SavedCoverLetter, SavedResume, StageId, Workspace } from "@/lib/types";
+import type { AIStatus } from "@/lib/ai-client";
 
 const STAGES: { id: StageId; label: string; short: string }[] = [
   { id: 1, label: "Role & documents", short: "Role" },
@@ -24,11 +27,12 @@ const formatDate = (value: string) => new Intl.DateTimeFormat("en-AU", { day: "n
 const makeId = () => crypto.randomUUID();
 
 function recalibrateWorkspace(workspace: Workspace): Workspace {
+  const normalized = normalizeDocumentLibrary(workspace);
   let changed = false;
-  const jobs = workspace.jobs.map((sourceJob) => {
+  const jobs = normalized.jobs.map((sourceJob) => {
     const job = Array.isArray(sourceJob.linkedinDocuments) ? sourceJob : { ...sourceJob, linkedinDocuments: [] };
     if (job !== sourceJob) changed = true;
-    const questions = new Map(generateInterviewQuestions(job).map((question) => [question.id, question]));
+    const questions = new Map((job.interviewQuestions?.length ? job.interviewQuestions : generateInterviewQuestions(job)).map((question) => [question.id, question]));
     const interviewAnswers = Object.fromEntries(Object.entries(job.interviewAnswers).map(([id, answer]) => {
       const question = questions.get(id);
       if (!question || !answer.text.trim() || !answer.result || answer.result.rubricVersion === AI_SERVICE_CONFIG.coachingRubricVersion) return [id, answer];
@@ -37,11 +41,25 @@ function recalibrateWorkspace(workspace: Workspace): Workspace {
     }));
     return interviewAnswers === job.interviewAnswers ? job : { ...job, interviewAnswers };
   });
-  return changed ? { ...workspace, jobs } : workspace;
+  return changed ? { ...normalized, jobs } : normalized;
 }
 
 function BrandMark() {
   return <span className="brand-mark" aria-hidden="true"><span>M</span><i /></span>;
+}
+
+function AIProvenanceBadge({ value }: { value?: AIProvenance }) {
+  const isAI = value?.mode === "openai";
+  return <span className={isAI ? "ai-provenance is-ai" : "ai-provenance is-fallback"} title={value?.reason}>{isAI ? `✦ AI · ${value.model}` : "◇ Verified fallback"}</span>;
+}
+
+function WorkflowStatus({ job, completed, aiStatus }: { job: Job; completed: number; aiStatus: AIStatus | null }) {
+  const stage = STAGES.find((item) => item.id === job.activeStage) ?? STAGES[0];
+  return <section className="workflow-status" aria-label="Preparation workflow status">
+    <div><span>OUTCOME</span><b>Interview-ready for {job.title || "your target role"}</b></div>
+    <div><span>CURRENT ACTION</span><b>{stage.label}</b><small>{stage.id === 1 ? "Ground the plan in role and candidate evidence" : stage.id === 2 ? "Verify fit, proof and genuine gaps" : stage.id === 3 ? "Practise and improve priority answers" : stage.id === 4 ? "Verify role judgement" : stage.id === 5 ? "Turn claims into reusable proof" : "Review evidence and choose the next action"}</small></div>
+    <div><span>VERIFIED EVIDENCE</span><b>{completed} of 5 preparation gates</b><small>{aiStatus?.configured ? `AI reasoning active · ${aiStatus.model}` : "Rubric fallback active · AI key not connected"}</small></div>
+  </section>;
 }
 
 function Landing({ onEnter, onSettings }: { onEnter: () => void; onSettings: () => void }) {
@@ -101,6 +119,7 @@ export function MockMateApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [preferences, setPreferences] = useState<AppPreferences>(DEFAULT_PREFERENCES);
   const [announcement, setAnnouncement] = useState("");
+  const [aiStatus, setAIStatus] = useState<AIStatus | null>(null);
   const firstSave = useRef(true);
   const preferencesLoaded = useRef(false);
 
@@ -114,6 +133,10 @@ export function MockMateApp() {
       .then((payload) => { const data = payload as { workspace?: Workspace | null; persistence?: string }; if (data.workspace?.version === 1) setWorkspace(recalibrateWorkspace(data.workspace)); setSaveState(data.persistence === "unavailable" ? "offline" : "saved"); })
       .catch(() => setSaveState("offline"))
       .finally(() => setLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    getAIStatus().then(setAIStatus).catch(() => setAIStatus({ configured: false, model: AI_SERVICE_CONFIG.model, provider: "deterministic-fallback" }));
   }, []);
 
   useEffect(() => {
@@ -154,14 +177,14 @@ export function MockMateApp() {
   const activeJob = workspace.jobs.find((job) => job.id === workspace.activeJobId) ?? workspace.jobs[0];
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
-  function updateActiveJob(update: Partial<Job> | ((job: Job) => Job)) {
+  const updateActiveJob = useCallback((update: Partial<Job> | ((job: Job) => Job)) => {
     setWorkspace((current) => ({
       ...current,
       jobs: current.jobs.map((job) => job.id === current.activeJobId
         ? typeof update === "function" ? update(job) : { ...job, ...update, updatedAt: new Date().toISOString() }
         : job),
     }));
-  }
+  }, []);
 
   function setStage(stage: StageId) {
     updateActiveJob({ activeStage: stage });
@@ -186,6 +209,7 @@ export function MockMateApp() {
     if (stage === 5) return workspace.evidenceItems.length > 0;
     return false;
   };
+  const completedStages = STAGES.slice(0, 5).filter((stage) => stageComplete(stage.id)).length;
 
   return (
     <div className="app-shell">
@@ -197,18 +221,19 @@ export function MockMateApp() {
         <nav className="stage-nav" aria-label="Preparation stages">
           {STAGES.map((stage) => <button key={stage.id} className={activeJob.activeStage === stage.id ? "active" : ""} onClick={() => setStage(stage.id)} aria-current={activeJob.activeStage === stage.id ? "step" : undefined}><span className={stageComplete(stage.id) ? "complete" : ""}>{stageComplete(stage.id) ? "✓" : stage.id}<i className="sr-only">{stageComplete(stage.id) ? "Complete" : "Not complete"}</i></span><div><b>{stage.label}</b><small>{stage.id === 1 ? "Target & profile" : stage.id === 2 ? "Fit & gaps" : stage.id === 3 ? "Practise & coach" : stage.id === 4 ? "Test your knowledge" : stage.id === 5 ? "Your proof points" : "Readiness at a glance"}</small></div></button>)}
         </nav>
-        <div className="sidebar-card"><span>✦</span><div><b>Prep momentum</b><p>{Math.round((STAGES.filter((stage) => stageComplete(stage.id)).length / 5) * 100)}% of your plan is active</p><div><i style={{ width: `${Math.round((STAGES.filter((stage) => stageComplete(stage.id)).length / 5) * 100)}%` }} /></div></div></div>
+        <div className="sidebar-card"><span>✦</span><div><b>Prep momentum</b><p>{Math.round((completedStages / 5) * 100)}% of your plan is verified</p><div><i style={{ width: `${Math.round((completedStages / 5) * 100)}%` }} /></div></div></div>
         <div className="sidebar-foot"><button><span className="avatar">MC</span><div><b>Maya Chen</b><small>Private workspace</small></div><i>•••</i></button></div>
       </aside>
       <div className="app-body">
         <header className="app-header">
           <button className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation">☰</button>
           <div className="job-switcher"><span className="job-dot" /><select value={activeJob.id} onChange={(event) => setWorkspace((current) => ({ ...current, activeJobId: event.target.value }))} aria-label="Current job">{workspace.jobs.map((job) => <option key={job.id} value={job.id}>{job.title || "Untitled role"}{job.company ? ` · ${job.company}` : ""}</option>)}</select><button onClick={addJob} title="Add another job" aria-label="Add another job">＋</button></div>
-          <div className="header-actions"><span className={`save-status ${saveState}`} role="status"><i />{saveState === "loading" ? "Loading" : saveState === "saving" ? "Saving" : saveState === "saved" ? "Saved" : "Preview mode"}</span><button className="theme-toggle" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={`Use ${theme === "light" ? "dark" : "light"} mode`} aria-pressed={theme === "dark"}><span aria-hidden="true">{theme === "light" ? "☼" : "☾"}</span></button><button className="settings-button" onClick={() => setSettingsOpen(true)} aria-label="Open accessibility and language settings" title="Accessibility & language (Alt+S)"><span aria-hidden="true">⚙</span></button><button className="help-button" aria-label="Help">?</button></div>
+          <div className="header-actions"><span className={aiStatus?.configured ? "ai-status ready" : "ai-status fallback"} title={aiStatus?.configured ? `OpenAI ${aiStatus.model} is active` : "Deterministic scoring remains available until an AI key is connected"}><i />{aiStatus?.configured ? "AI ready" : "Smart fallback"}</span><span className={`save-status ${saveState}`} role="status"><i />{saveState === "loading" ? "Loading" : saveState === "saving" ? "Saving" : saveState === "saved" ? "Saved" : "Preview mode"}</span><button className="theme-toggle" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={`Use ${theme === "light" ? "dark" : "light"} mode`} aria-pressed={theme === "dark"}><span aria-hidden="true">{theme === "light" ? "☼" : "☾"}</span></button><button className="settings-button" onClick={() => setSettingsOpen(true)} aria-label="Open accessibility and language settings" title="Accessibility & language (Alt+S)"><span aria-hidden="true">⚙</span></button><button className="help-button" aria-label="Help">?</button></div>
         </header>
         <main className="workspace-main" id="main-workspace" tabIndex={-1}>
           <div className="stage-kicker">STAGE {activeJob.activeStage} OF 6</div>
-          {activeJob.activeStage === 1 && <RoleDocuments job={activeJob} templates={workspace.templates} updateJob={updateActiveJob} updateTemplates={(templates) => setWorkspace((current) => ({ ...current, templates }))} onAnalyse={() => setStage(2)} />}
+          <WorkflowStatus job={activeJob} completed={completedStages} aiStatus={aiStatus} />
+          {activeJob.activeStage === 1 && <RoleDocuments key={activeJob.id} job={activeJob} templates={workspace.templates} resumeLibrary={workspace.resumeLibrary} coverLetterLibrary={workspace.coverLetterLibrary} updateJob={updateActiveJob} updateTemplates={(templates) => setWorkspace((current) => ({ ...current, templates }))} updateResumeLibrary={(resumeLibrary) => setWorkspace((current) => ({ ...current, resumeLibrary }))} updateCoverLetterLibrary={(coverLetterLibrary) => setWorkspace((current) => ({ ...current, coverLetterLibrary }))} onAnalyse={() => setStage(2)} />}
           {activeJob.activeStage === 2 && <CandidateAnalysis job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(3)} />}
           {activeJob.activeStage === 3 && <MockInterview job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(4)} preferences={preferences} announce={setAnnouncement} />}
           {activeJob.activeStage === 4 && <MasteryQuiz job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(5)} />}
@@ -225,12 +250,36 @@ function StageHeading({ eyebrow, title, description, action }: { eyebrow?: strin
   return <div className="stage-heading"><div>{eyebrow && <span>{eyebrow}</span>}<h1>{title}</h1><p>{description}</p></div>{action}</div>;
 }
 
-function RoleDocuments({ job, templates, updateJob, updateTemplates, onAnalyse }: { job: Job; templates: ProfileTemplate[]; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; updateTemplates: (templates: ProfileTemplate[]) => void; onAnalyse: () => void }) {
+function RoleDocuments({ job, templates, resumeLibrary, coverLetterLibrary, updateJob, updateTemplates, updateResumeLibrary, updateCoverLetterLibrary, onAnalyse }: { job: Job; templates: ProfileTemplate[]; resumeLibrary: SavedResume[]; coverLetterLibrary: SavedCoverLetter[]; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; updateTemplates: (templates: ProfileTemplate[]) => void; updateResumeLibrary: (items: SavedResume[]) => void; updateCoverLetterLibrary: (items: SavedCoverLetter[]) => void; onAnalyse: () => void }) {
   const [uploading, setUploading] = useState<"resume" | "cover" | null>(null);
   const [uploadError, setUploadError] = useState("");
+  const [analysing, setAnalysing] = useState(false);
+  const [analysisMessage, setAnalysisMessage] = useState("");
   const [templateName, setTemplateName] = useState(templates.find((item) => item.id === job.templateId)?.name ?? "");
   const [showTemplates, setShowTemplates] = useState(false);
+  const selectedResume = resumeLibrary.find((item) => item.id === job.resumeLibraryId) ?? null;
+  const selectedCoverLetter = coverLetterLibrary.find((item) => item.id === job.coverLetterLibraryId) ?? null;
+  const [resumeName, setResumeName] = useState(selectedResume?.name ?? documentDisplayName(job.resume?.filename ?? ""));
+  const [coverLetterName, setCoverLetterName] = useState(selectedCoverLetter?.name ?? documentDisplayName(job.coverLetterDocument?.filename ?? ""));
   const canAnalyse = Boolean(job.title.trim() && job.description.trim() && job.resume?.extractedText);
+
+  function attachDocument(document: NonNullable<Job["resume"]>, kind: "resume" | "cover") {
+    const now = new Date().toISOString();
+    if (kind === "resume") {
+      const existing = resumeLibrary.find((item) => item.document.id === document.id);
+      const item: SavedResume = existing ?? { id: makeId(), name: documentDisplayName(document.filename) || "Saved resume", document, updatedAt: now };
+      updateResumeLibrary(existing ? resumeLibrary.map((candidate) => candidate.id === existing.id ? { ...candidate, document, updatedAt: now } : candidate) : [...resumeLibrary, item]);
+      updateJob({ resume: document, resumeLibraryId: item.id, templateId: null });
+      setResumeName(item.name);
+      return;
+    }
+    const text = document.extractedText || job.coverLetterText;
+    const existing = coverLetterLibrary.find((item) => item.document?.id === document.id);
+    const item: SavedCoverLetter = existing ?? { id: makeId(), name: documentDisplayName(document.filename) || "Saved cover letter", document, text, updatedAt: now };
+    updateCoverLetterLibrary(existing ? coverLetterLibrary.map((candidate) => candidate.id === existing.id ? { ...candidate, document, text, updatedAt: now } : candidate) : [...coverLetterLibrary, item]);
+    updateJob({ coverLetterDocument: document, coverLetterText: text, coverLetterLibraryId: item.id, templateId: null });
+    setCoverLetterName(item.name);
+  }
 
   async function upload(file: File, kind: "resume" | "cover") {
     setUploading(kind); setUploadError("");
@@ -240,82 +289,182 @@ function RoleDocuments({ job, templates, updateJob, updateTemplates, onAnalyse }
       const data = await response.json() as { error?: string; document?: Job["resume"] };
       if (!response.ok) throw new Error(data.error || "Upload failed");
       if (!data.document) throw new Error("The document response was incomplete");
-      updateJob(kind === "resume" ? { resume: data.document } : { coverLetterDocument: data.document, coverLetterText: data.document.extractedText || job.coverLetterText });
+      attachDocument(data.document, kind);
     } catch (error) {
       if (["text/plain", "text/markdown"].includes(file.type) || /\.(txt|md)$/i.test(file.name)) {
         const text = await file.text();
         const document = { id: makeId(), filename: file.name, contentType: file.type || "text/plain", storageKey: "local-preview", extractedText: text, characterCount: text.length, status: "extracted" as const };
-        updateJob(kind === "resume" ? { resume: document } : { coverLetterDocument: document, coverLetterText: text });
+        attachDocument(document, kind);
         setUploadError("Stored in this preview session; hosted document storage will retain the original.");
       } else setUploadError(error instanceof Error ? error.message : "Could not process that document");
     } finally { setUploading(null); }
   }
 
   function loadExample() {
+    const document = { id: makeId(), filename: "Example_Product_Resume.txt", contentType: "text/plain", storageKey: "example", extractedText: SAMPLE_RESUME, characterCount: SAMPLE_RESUME.length, status: "extracted" as const };
+    const item: SavedResume = { id: makeId(), name: "Product leadership — example", document, updatedAt: new Date().toISOString() };
+    updateResumeLibrary([...resumeLibrary, item]);
     updateJob({
       title: "Senior Product Manager, AI", company: "Lumon Labs", description: SAMPLE_JOB_DESCRIPTION,
-      resume: { id: makeId(), filename: "Example_Product_Resume.txt", contentType: "text/plain", storageKey: "example", extractedText: SAMPLE_RESUME, characterCount: SAMPLE_RESUME.length, status: "extracted" },
+      resume: document, resumeLibraryId: item.id, templateId: null,
     });
+    setResumeName(item.name);
+  }
+
+  function chooseResume(resumeId: string) {
+    const saved = resumeLibrary.find((item) => item.id === resumeId);
+    if (!saved) { updateJob({ resumeLibraryId: null, templateId: null }); return; }
+    setResumeName(saved.name);
+    updateJob({ resume: saved.document, resumeLibraryId: saved.id, templateId: null });
+  }
+
+  function chooseCoverLetter(coverLetterId: string) {
+    const saved = coverLetterLibrary.find((item) => item.id === coverLetterId);
+    if (!saved) { updateJob({ coverLetterLibraryId: null, templateId: null }); return; }
+    setCoverLetterName(saved.name);
+    updateJob({ coverLetterDocument: saved.document, coverLetterText: saved.text, coverLetterLibraryId: saved.id, templateId: null });
+  }
+
+  function saveResume() {
+    if (!job.resume) return;
+    const now = new Date().toISOString();
+    const name = resumeName.trim() || documentDisplayName(job.resume.filename) || "Saved resume";
+    const existing = resumeLibrary.find((item) => item.id === job.resumeLibraryId);
+    const item: SavedResume = { id: existing?.id ?? makeId(), name, document: job.resume, updatedAt: now };
+    updateResumeLibrary(existing ? resumeLibrary.map((candidate) => candidate.id === item.id ? item : candidate) : [...resumeLibrary, item]);
+    updateJob({ resumeLibraryId: item.id });
+    setResumeName(name);
+  }
+
+  function saveCoverLetter() {
+    if (!job.coverLetterDocument && !job.coverLetterText.trim()) return;
+    const now = new Date().toISOString();
+    const name = coverLetterName.trim() || documentDisplayName(job.coverLetterDocument?.filename ?? "") || "Saved cover letter";
+    const existing = coverLetterLibrary.find((item) => item.id === job.coverLetterLibraryId);
+    const item: SavedCoverLetter = { id: existing?.id ?? makeId(), name, document: job.coverLetterDocument, text: job.coverLetterText, updatedAt: now };
+    updateCoverLetterLibrary(existing ? coverLetterLibrary.map((candidate) => candidate.id === item.id ? item : candidate) : [...coverLetterLibrary, item]);
+    updateJob({ coverLetterLibraryId: item.id });
+    setCoverLetterName(name);
+  }
+
+  function removeSavedResume() {
+    if (!job.resumeLibraryId) return;
+    const resumeId = job.resumeLibraryId;
+    updateResumeLibrary(resumeLibrary.filter((item) => item.id !== resumeId));
+    updateTemplates(templates.map((template) => template.resumeLibraryId === resumeId ? { ...template, resumeLibraryId: null } : template));
+    updateJob({ resumeLibraryId: null, templateId: null });
+  }
+
+  function removeSavedCoverLetter() {
+    if (!job.coverLetterLibraryId) return;
+    const coverLetterId = job.coverLetterLibraryId;
+    updateCoverLetterLibrary(coverLetterLibrary.filter((item) => item.id !== coverLetterId));
+    updateTemplates(templates.map((template) => template.coverLetterLibraryId === coverLetterId ? { ...template, coverLetterLibraryId: null } : template));
+    updateJob({ coverLetterLibraryId: null, templateId: null });
   }
 
   function applyTemplate(templateId: string) {
     const template = templates.find((item) => item.id === templateId);
     if (!template) { updateJob({ templateId: null }); return; }
     setTemplateName(template.name);
-    updateJob({ templateId, resume: template.resume, coverLetterDocument: template.coverLetterDocument, coverLetterText: template.coverLetterText, portfolioUrl: template.portfolioUrl, linkedinUrl: template.linkedinUrl });
+    setResumeName(resumeLibrary.find((item) => item.id === template.resumeLibraryId)?.name ?? documentDisplayName(template.resume?.filename ?? ""));
+    setCoverLetterName(coverLetterLibrary.find((item) => item.id === template.coverLetterLibraryId)?.name ?? documentDisplayName(template.coverLetterDocument?.filename ?? ""));
+    updateJob({ templateId, resumeLibraryId: template.resumeLibraryId, coverLetterLibraryId: template.coverLetterLibraryId, resume: template.resume, coverLetterDocument: template.coverLetterDocument, coverLetterText: template.coverLetterText, portfolioUrl: template.portfolioUrl, linkedinUrl: template.linkedinUrl });
   }
 
   function saveTemplate() {
-    const name = templateName.trim() || `${job.title || "General"} profile`;
+    const name = templateName.trim() || `${job.title || "General"} application kit`;
     const existing = templates.find((item) => item.id === job.templateId);
-    const template: ProfileTemplate = { id: existing?.id ?? makeId(), name, resume: job.resume, coverLetterDocument: job.coverLetterDocument, coverLetterText: job.coverLetterText, portfolioUrl: job.portfolioUrl, linkedinUrl: job.linkedinUrl, updatedAt: new Date().toISOString() };
+    const template: ProfileTemplate = { id: existing?.id ?? makeId(), name, resumeLibraryId: job.resumeLibraryId, coverLetterLibraryId: job.coverLetterLibraryId, resume: job.resume, coverLetterDocument: job.coverLetterDocument, coverLetterText: job.coverLetterText, portfolioUrl: job.portfolioUrl, linkedinUrl: job.linkedinUrl, updatedAt: new Date().toISOString() };
     updateTemplates(existing ? templates.map((item) => item.id === existing.id ? template : item) : [...templates, template]);
     updateJob({ templateId: template.id }); setTemplateName(name); setShowTemplates(false);
   }
 
-  function runAnalysis() {
+  function deleteTemplate() {
+    if (!job.templateId) return;
+    updateTemplates(templates.filter((template) => template.id !== job.templateId));
+    updateJob({ templateId: null });
+    setTemplateName("");
+    setShowTemplates(false);
+  }
+
+  async function runAnalysis() {
     if (!canAnalyse) return;
-    const result = analyseCandidate(job);
-    updateJob({ analysis: result, analysisHistory: [...job.analysisHistory, { score: result.alignmentScore, at: result.createdAt }], activeStage: 2 });
-    onAnalyse();
+    setAnalysing(true); setAnalysisMessage("");
+    try {
+      const { result } = await requestAI<AnalysisResult>("analyse", { job });
+      updateJob({ analysis: result, analysisHistory: [...job.analysisHistory, { score: result.alignmentScore, at: result.createdAt }], interviewQuestions: [], activeStage: 2 });
+      onAnalyse();
+    } catch {
+      const result = analyseCandidate(job);
+      updateJob({ analysis: result, analysisHistory: [...job.analysisHistory, { score: result.alignmentScore, at: result.createdAt }], interviewQuestions: [], activeStage: 2 });
+      setAnalysisMessage("The model could not be reached, so MockMate used its verified rubric fallback.");
+      onAnalyse();
+    } finally { setAnalysing(false); }
   }
 
   return <>
-    <StageHeading title="Start with the role." description="Give MockMate the target and the strongest version of your professional story. You can reuse this profile on every application." action={<button className="button button-soft" onClick={loadExample}>↗ Load example</button>} />
-    <div className="template-bar"><div><span className="template-icon">✦</span><div><b>Profile template</b><small>Reuse your resume, links and cover letter</small></div></div><select value={job.templateId ?? ""} onChange={(event) => applyTemplate(event.target.value)}><option value="">Ad-hoc documents</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select><button className="text-button" onClick={() => setShowTemplates(!showTemplates)}>{showTemplates ? "Close" : "Manage"}</button></div>
-    {showTemplates && <div className="template-editor"><div><label>Template name<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="e.g. Product Leader — AI" /></label><button className="button button-dark" onClick={saveTemplate}>Save profile</button></div><p>Saving updates the reusable template. This job keeps any later per-job overrides.</p></div>}
+    <StageHeading title="Start with the role." description="Choose the best resume and cover letter for this role. Save each document once, then mix and match them or keep an optional pairing." action={<button className="button button-soft" onClick={loadExample}>↗ Load example</button>} />
+    <div className="template-bar"><div><span className="template-icon">✦</span><div><b>Application kit <span className="optional-pill">Optional</span></b><small>Pair a resume and cover letter you often use together</small></div></div><select value={job.templateId ?? ""} onChange={(event) => applyTemplate(event.target.value)} aria-label="Application kit"><option value="">Mix & match — no saved kit</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select><button className="text-button" onClick={() => setShowTemplates(!showTemplates)}>{showTemplates ? "Close" : "Manage kits"}</button></div>
+    {showTemplates && <div className="template-editor"><div><label>Kit name<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="e.g. Product roles — AI" /></label><button className="button button-dark" disabled={!job.resume} onClick={saveTemplate}>{job.templateId ? "Update kit" : "Save as kit"}</button></div><div className="kit-summary"><span><b>Resume</b>{selectedResume?.name ?? (job.resume ? documentDisplayName(job.resume.filename) : "None selected")}</span><i>＋</i><span><b>Cover letter</b>{selectedCoverLetter?.name ?? (job.coverLetterText ? "One-off cover letter" : "No cover letter")}</span></div><div className="template-editor-actions"><p>A kit is only a shortcut. You can still tailor either document for a specific job.</p><div>{job.templateId && <button className="text-button danger-text" onClick={deleteTemplate}>Delete kit</button>}<button className="text-button" onClick={() => { updateJob({ templateId: null }); setTemplateName(""); }}>＋ New kit</button></div></div></div>}
     <section className="form-card">
       <div className="section-label"><span>01</span><div><h2>Target role</h2><p>The source of truth for every question and recommendation.</p></div></div>
       <div className="field-grid two"><label>Job title <span>Required</span><input value={job.title} onChange={(event) => updateJob({ title: event.target.value })} placeholder="e.g. Senior Product Manager" /></label><label>Company <span>Optional</span><input value={job.company} onChange={(event) => updateJob({ company: event.target.value })} placeholder="e.g. Lumon Labs" /></label></div>
       <label>Job description <span>Required</span><textarea className="jd-textarea" value={job.description} onChange={(event) => updateJob({ description: event.target.value })} placeholder="Paste the complete job description here…" /><small className="field-meta">{job.description.length.toLocaleString()} characters</small></label>
     </section>
     <section className="form-card">
-      <div className="section-label"><span>02</span><div><h2>Your profile</h2><p>Upload the evidence you want assessed for this specific role.</p></div></div>
+      <div className="section-label"><span>02</span><div><h2>Your application documents</h2><p>Saved resumes and cover letters stay independent. Pair them only when it saves you time.</p></div></div>
+      <div className="document-library-head"><div><span className="overline">YOUR LIBRARY</span><h3>Pick, name and reuse</h3></div><p>{resumeLibrary.length} resume{resumeLibrary.length === 1 ? "" : "s"} · {coverLetterLibrary.length} cover letter{coverLetterLibrary.length === 1 ? "" : "s"}</p></div>
+      <div className="document-library-grid">
+        <article className="library-card">
+          <div className="library-card-title"><span>R</span><div><b>Resume library</b><small>Choose the version that fits this role</small></div></div>
+          <label>Saved resume<select value={job.resumeLibraryId ?? ""} onChange={(event) => chooseResume(event.target.value)}><option value="">Current one-off resume</option>{resumeLibrary.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <div className="library-name-row"><label>Name this resume<input value={resumeName} onChange={(event) => setResumeName(event.target.value)} placeholder="e.g. Product manager — AI" /></label><button className="button button-soft" disabled={!job.resume} onClick={saveResume}>{selectedResume ? "Update" : "Save"}</button></div>
+          <div className="library-card-actions"><label className="text-button upload-another">＋ Upload another<input type="file" accept=".pdf,.docx,.txt,.md,.rtf,.pptx" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0], "resume")} /></label>{selectedResume && <button className="text-button danger-text" onClick={removeSavedResume}>Remove from library</button>}</div>
+        </article>
+        <article className="library-card">
+          <div className="library-card-title"><span>C</span><div><b>Cover-letter library</b><small>Optional and reusable independently</small></div></div>
+          <label>Saved cover letter<select value={job.coverLetterLibraryId ?? ""} onChange={(event) => chooseCoverLetter(event.target.value)}><option value="">Current one-off cover letter</option>{coverLetterLibrary.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <div className="library-name-row"><label>Name this cover letter<input value={coverLetterName} onChange={(event) => setCoverLetterName(event.target.value)} placeholder="e.g. SaaS leadership base" /></label><button className="button button-soft" disabled={!job.coverLetterDocument && !job.coverLetterText.trim()} onClick={saveCoverLetter}>{selectedCoverLetter ? "Update" : "Save"}</button></div>
+          <div className="library-card-actions"><label className="text-button upload-another">＋ Upload another<input type="file" accept=".pdf,.docx,.txt,.md,.rtf" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0], "cover")} /></label>{selectedCoverLetter && <button className="text-button danger-text" onClick={removeSavedCoverLetter}>Remove from library</button>}</div>
+        </article>
+      </div>
       <div className="upload-grid">
-        <div className="upload-block"><div className="field-label">Resume <span>Required</span></div>{job.resume ? <div className="file-card"><span className="file-type">{job.resume.filename.split(".").pop()?.toUpperCase()}</span><div><b>{job.resume.filename}</b><small><i /> {job.resume.status === "extracted" ? `Extracted ${job.resume.characterCount.toLocaleString()} characters` : "Original stored · extraction unavailable"}</small></div><button onClick={() => updateJob({ resume: null })} aria-label="Remove resume">×</button></div> : <label className="dropzone"><input type="file" accept=".pdf,.docx,.txt,.md,.rtf,.pptx" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0], "resume")} /><span>{uploading === "resume" ? "…" : "↑"}</span><b>{uploading === "resume" ? "Extracting document" : "Drop resume or choose a file"}</b><small>PDF, DOCX, TXT, MD, RTF or PPTX · max 12 MB</small></label>}</div>
-        <div className="upload-block"><div className="field-label">Cover letter <span>Optional</span></div>{job.coverLetterDocument ? <div className="file-card"><span className="file-type">{job.coverLetterDocument.filename.split(".").pop()?.toUpperCase()}</span><div><b>{job.coverLetterDocument.filename}</b><small><i /> {job.coverLetterDocument.characterCount.toLocaleString()} characters available</small></div><button onClick={() => updateJob({ coverLetterDocument: null })} aria-label="Remove cover letter">×</button></div> : <label className="dropzone compact"><input type="file" accept=".pdf,.docx,.txt,.md,.rtf" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0], "cover")} /><span>{uploading === "cover" ? "…" : "↑"}</span><b>{uploading === "cover" ? "Extracting document" : "Upload cover letter"}</b><small>Or paste the text below</small></label>}</div>
+        <div className="upload-block"><div className="field-label">Resume in use <span>Required</span></div>{job.resume ? <div className="file-card"><span className="file-type">{job.resume.filename.split(".").pop()?.toUpperCase()}</span><div><b>{selectedResume?.name ?? job.resume.filename}</b><small><i /> {job.resume.status === "extracted" ? `${job.resume.filename} · ${job.resume.characterCount.toLocaleString()} characters` : "Original stored · extraction unavailable"}</small></div><button onClick={() => updateJob({ resume: null, resumeLibraryId: null, templateId: null })} aria-label="Remove resume from this job">×</button></div> : <label className="dropzone"><input type="file" accept=".pdf,.docx,.txt,.md,.rtf,.pptx" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0], "resume")} /><span>{uploading === "resume" ? "…" : "↑"}</span><b>{uploading === "resume" ? "Extracting document" : "Drop resume or choose a file"}</b><small>PDF, DOCX, TXT, MD, RTF or PPTX · max 12 MB</small></label>}</div>
+        <div className="upload-block"><div className="field-label">Cover letter in use <span>Optional</span></div>{job.coverLetterDocument ? <div className="file-card"><span className="file-type">{job.coverLetterDocument.filename.split(".").pop()?.toUpperCase()}</span><div><b>{selectedCoverLetter?.name ?? job.coverLetterDocument.filename}</b><small><i /> {job.coverLetterDocument.filename} · {job.coverLetterDocument.characterCount.toLocaleString()} characters</small></div><button onClick={() => updateJob({ coverLetterDocument: null, coverLetterLibraryId: null, templateId: null })} aria-label="Remove cover-letter file from this job">×</button></div> : <label className="dropzone compact"><input type="file" accept=".pdf,.docx,.txt,.md,.rtf" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0], "cover")} /><span>{uploading === "cover" ? "…" : "↑"}</span><b>{uploading === "cover" ? "Extracting document" : "Upload cover letter"}</b><small>Or paste and save the text below</small></label>}</div>
       </div>
       {uploadError && <p className="inline-alert">{uploadError}</p>}
-      <label>Cover letter text <span>Optional</span><textarea value={job.coverLetterText} onChange={(event) => updateJob({ coverLetterText: event.target.value })} placeholder="Paste or tailor your cover letter…" /></label>
+      <label>Cover letter text <span>Optional</span><textarea value={job.coverLetterText} onChange={(event) => updateJob({ coverLetterText: event.target.value, templateId: null })} placeholder="Paste or tailor your cover letter, then name and save it above…" /></label>
       <div className="field-grid two"><label>Portfolio URL <span>Optional</span><input type="url" value={job.portfolioUrl} onChange={(event) => updateJob({ portfolioUrl: event.target.value })} placeholder="https://yourportfolio.com" /></label><label>LinkedIn profile <span>Optional</span><input type="url" value={job.linkedinUrl} onChange={(event) => updateJob({ linkedinUrl: event.target.value })} placeholder="https://linkedin.com/in/…" /></label></div>
     </section>
-    <div className="sticky-action"><div><b>{canAnalyse ? "Everything is ready." : "Add the role, description and resume to continue."}</b><small>Analysis uses a rubric-pinned service for consistent comparisons.</small></div><button className="button button-primary button-large" disabled={!canAnalyse} onClick={runAnalysis}>Analyse candidate against role <span>→</span></button></div>
+    {analysisMessage && <p className="inline-alert" role="status">{analysisMessage}</p>}
+    <div className="sticky-action"><div><b>{analysing ? "AI is mapping your evidence." : canAnalyse ? "Everything is ready." : "Add the role, description and resume to continue."}</b><small>Semantic AI analysis is anchored to a versioned evidence rubric, with a deterministic fallback.</small></div><button className="button button-primary button-large" disabled={!canAnalyse || analysing} onClick={() => void runAnalysis()}>{analysing ? "Analysing evidence…" : "Analyse candidate against role"} <span>{analysing ? "✦" : "→"}</span></button></div>
   </>;
 }
 
 function CandidateAnalysis({ job, updateJob, onNext }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onNext: () => void }) {
   const [requirement, setRequirement] = useState("");
   const [showLinkedIn, setShowLinkedIn] = useState(false);
+  const [analysing, setAnalysing] = useState(false);
   const analysis = job.analysis ?? analyseCandidate(job);
-  function reanalyse() { const result = analyseCandidate(job); updateJob({ analysis: result, analysisHistory: [...job.analysisHistory, { score: result.alignmentScore, at: result.createdAt }] }); }
+  async function reanalyse() {
+    setAnalysing(true);
+    try {
+      const { result } = await requestAI<AnalysisResult>("analyse", { job });
+      updateJob({ analysis: result, analysisHistory: [...job.analysisHistory, { score: result.alignmentScore, at: result.createdAt }], ...(Object.keys(job.interviewAnswers).length ? {} : { interviewQuestions: [] }) });
+    } catch {
+      const result = analyseCandidate(job);
+      updateJob({ analysis: result, analysisHistory: [...job.analysisHistory, { score: result.alignmentScore, at: result.createdAt }] });
+    } finally { setAnalysing(false); }
+  }
   function updateRequirements(requirements: typeof analysis.requirements) { updateJob({ analysis: { ...analysis, requirements, gaps: requirements.filter((item) => !item.covered).map((item) => item.label) } }); }
   return <>
-    <StageHeading eyebrow="ANALYSIS COMPLETE" title="You’re a strong match." description="Your experience covers the core of this role. The fastest gain now is making two missing proof points concrete." action={<button className="button button-soft" onClick={reanalyse}>↻ Re-analyse</button>} />
+    <StageHeading eyebrow="ANALYSIS COMPLETE" title={analysis.alignmentScore >= 80 ? "You’re a strong match." : analysis.alignmentScore >= 65 ? "You’re a promising match." : "You have a focused path forward."} description={`${analysis.evidenceFound.length} proof point${analysis.evidenceFound.length === 1 ? "" : "s"} verified against the role, with ${analysis.gaps.length} gap${analysis.gaps.length === 1 ? "" : "s"} worth preparing.`} action={<button className="button button-soft" disabled={analysing} onClick={() => void reanalyse()}>{analysing ? "✦ Analysing…" : "↻ Re-analyse"}</button>} />
     <div className="score-grid">
-      <section className="score-card primary-score"><div className="score-ring" style={{ "--score": analysis.alignmentScore } as CSSProperties}><div><strong>{analysis.alignmentScore}</strong><span>/ 100</span></div></div><div><span className="overline">ALIGNMENT SCORE</span><h2>{analysis.alignmentScore >= 80 ? "Strong match" : analysis.alignmentScore >= 65 ? "Promising match" : "Developing match"}</h2><p>Resume and cover letter evidence against the detected role requirements.</p><small>Rubric {analysis.rubricVersion}</small></div></section>
+      <section className="score-card primary-score"><div className="score-ring" style={{ "--score": analysis.alignmentScore } as CSSProperties}><div><strong>{analysis.alignmentScore}</strong><span>/ 100</span></div></div><div><span className="overline">ALIGNMENT SCORE</span><h2>{analysis.alignmentScore >= 80 ? "Strong match" : analysis.alignmentScore >= 65 ? "Promising match" : "Developing match"}</h2><p>Resume and cover letter evidence against the detected role requirements.</p><small>Rubric {analysis.rubricVersion}</small><AIProvenanceBadge value={analysis.provenance} /></div></section>
       <section className="score-card reputation-card"><div className="empty-score">—</div><div><span className="overline">LINKEDIN EVIDENCE</span><h2>{analysis.reputationScore ?? "Not available"}</h2><p>{analysis.reputationScore ? `Based on the LinkedIn evidence you supplied${(job.linkedinDocuments ?? []).length ? ` across ${(job.linkedinDocuments ?? []).length} file${(job.linkedinDocuments ?? []).length === 1 ? "" : "s"}` : ""}.` : "Add your own export—MockMate never scrapes LinkedIn or invents activity."}</p><button className="text-button" onClick={() => setShowLinkedIn(!showLinkedIn)} aria-expanded={showLinkedIn}>{showLinkedIn ? "Close LinkedIn evidence" : "Attach LinkedIn evidence →"}</button></div></section>
     </div>
-    {showLinkedIn && <LinkedInEvidencePanel job={job} updateJob={updateJob} onReanalyse={reanalyse} />}
+    {showLinkedIn && <LinkedInEvidencePanel job={job} updateJob={updateJob} onReanalyse={() => { void reanalyse(); }} />}
     <div className="analysis-layout">
       <section className="panel competency-panel"><div className="panel-head"><div><span className="overline">COMPETENCY BREAKDOWN</span><h2>Where your match comes from</h2></div><span className="legend"><i /> Your evidence</span></div><div className="competency-list">{analysis.categories.map((category) => <div key={category.label}><div><b>{category.label}</b><span>{category.score}</span></div><div className="bar"><i style={{ width: `${category.score}%` }} /></div><p>{category.note}</p></div>)}</div></section>
       <section className="panel requirements-panel"><div className="panel-head"><div><span className="overline">REQUIREMENTS DETECTED</span><h2>{analysis.requirements.length} role signals</h2></div><span className="mini-pill">Editable</span></div><div className="requirement-list">{analysis.requirements.map((item) => <div key={item.id}><button className={item.covered ? "covered" : "gap"} onClick={() => updateRequirements(analysis.requirements.map((req) => req.id === item.id ? { ...req, covered: !req.covered } : req))}>{item.covered ? "✓" : "!"}</button><span>{item.label}<small>{item.type}</small></span><button className="remove-button" onClick={() => updateRequirements(analysis.requirements.filter((req) => req.id !== item.id))}>×</button></div>)}</div><div className="add-requirement"><input value={requirement} onChange={(event) => setRequirement(event.target.value)} placeholder="Add a missed requirement" onKeyDown={(event) => { if (event.key === "Enter" && requirement.trim()) { updateRequirements([...analysis.requirements, { id: makeId(), label: requirement.trim(), type: "hard", covered: false }]); setRequirement(""); } }} /><button onClick={() => { if (requirement.trim()) { updateRequirements([...analysis.requirements, { id: makeId(), label: requirement.trim(), type: "hard", covered: false }]); setRequirement(""); } }}>＋</button></div></section>
@@ -403,12 +552,39 @@ function LinkedInEvidencePanel({ job, updateJob, onReanalyse }: { job: Job; upda
 }
 
 function MockInterview({ job, updateJob, onNext, preferences, announce }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onNext: () => void; preferences: AppPreferences; announce: (message: string) => void }) {
-  const questions = useMemo(() => generateInterviewQuestions(job), [job]);
+  const questions = useMemo(() => job.interviewQuestions?.length === 112 ? job.interviewQuestions : generateInterviewQuestions(job), [job]);
+  const requestedQuestions = useRef("");
+  const questionState = job.interviewQuestions?.length === 112 ? "ready" : "loading";
+  const [coaching, setCoaching] = useState(false);
   const [page, setPage] = useState(0); const [selected, setSelected] = useState(0); const [listOpen, setListOpen] = useState(true);
   const pageQuestions = questions.slice(page * 14, page * 14 + 14); const question = questions[selected]; const answer = job.interviewAnswers[question.id] ?? { text: "", mode: "writing" as const, updatedAt: new Date().toISOString() };
   const attempted = Object.values(job.interviewAnswers).filter((item) => item.text.trim()).length;
   function saveAnswer(next: InterviewAnswer) { updateJob({ interviewAnswers: { ...job.interviewAnswers, [question.id]: next } }); }
-  function coach() { if (!answer.text.trim()) return; const result = coachAnswer(answer.text, question, job); saveAnswer({ ...answer, result, updatedAt: new Date().toISOString() }); if (preferences.verboseAnnouncements) announce(`Coach score ${result.score} out of 100. ${result.critique[0]}`); }
+  useEffect(() => {
+    if (job.interviewQuestions?.length === 112) return;
+    const requestKey = `${job.id}-${job.analysis?.id ?? "unanalysed"}`;
+    if (requestedQuestions.current === requestKey) return;
+    requestedQuestions.current = requestKey;
+    let cancelled = false;
+    const questionJob = { id: job.id, title: job.title, company: job.company, description: job.description, analysis: job.analysis };
+    requestAI<InterviewQuestion[]>("questions", { job: questionJob })
+      .then(({ result }) => { if (!cancelled) updateJob({ interviewQuestions: result }); })
+      .catch(() => { if (!cancelled) updateJob({ interviewQuestions: generateInterviewQuestions(questionJob) }); });
+    return () => { cancelled = true; };
+  }, [job.id, job.title, job.company, job.description, job.analysis, job.interviewQuestions?.length, updateJob]);
+  async function coach() {
+    if (!answer.text.trim() || coaching) return;
+    setCoaching(true);
+    try {
+      const { result } = await requestAI<CoachResult>("coach", { answer: answer.text, question, job });
+      saveAnswer({ ...answer, result, updatedAt: new Date().toISOString() });
+      if (preferences.verboseAnnouncements) announce(`Coach score ${result.score} out of 100. ${result.critique[0]}`);
+    } catch {
+      const result = coachAnswer(answer.text, question, job);
+      saveAnswer({ ...answer, result, updatedAt: new Date().toISOString() });
+      if (preferences.verboseAnnouncements) announce(`Coach score ${result.score} out of 100. Verified fallback guidance was used.`);
+    } finally { setCoaching(false); }
+  }
   function speakQuestion() {
     if (!("speechSynthesis" in window)) { announce("Read aloud is not supported in this browser."); return; }
     speechSynthesis.cancel();
@@ -423,15 +599,15 @@ function MockInterview({ job, updateJob, onNext, preferences, announce }: { job:
   }
   function selectQuestion(index: number) { setSelected(index); setPage(Math.floor(index / 14)); if (preferences.verboseAnnouncements) announce(`Question ${index + 1}: ${questions[index].prompt}`); if (window.innerWidth < 900) setListOpen(false); }
   return <>
-    <StageHeading title="Practise the moments that matter." description={`${questions.length} questions generated from this role, your evidence and the gaps worth preparing.`} action={<div className="progress-stat"><strong>{attempted}</strong><span>of {questions.length}<small>attempted</small></span></div>} />
+    <StageHeading title="Practise the moments that matter." description={`${questions.length} questions generated from this role, your evidence and the gaps worth preparing.`} action={<div className="stage-heading-actions"><AIProvenanceBadge value={questions[0]?.provenance} /><div className="progress-stat"><strong>{attempted}</strong><span>of {questions.length}<small>{questionState === "loading" ? "personalising" : "attempted"}</small></span></div></div>} />
     <div className="interview-shell">
       <aside className={listOpen ? "question-browser open" : "question-browser"} aria-label="Interview question list"><div className="question-browser-head"><div><span className="overline">QUESTION SET</span><b>{page * 14 + 1}–{Math.min(page * 14 + 14, questions.length)} of {questions.length}</b></div><button onClick={() => setListOpen(false)} aria-label="Close question list">×</button></div><div className="question-items">{pageQuestions.map((item, index) => { const absolute = page * 14 + index; const saved = job.interviewAnswers[item.id]; return <button key={item.id} className={selected === absolute ? "active" : ""} onClick={() => selectQuestion(absolute)} aria-current={selected === absolute ? "true" : undefined}><span>{saved?.result ? "✓" : item.number.toString().padStart(2, "0")}</span><div><small>{item.category}</small><p>{item.prompt}</p></div>{saved?.result && <b aria-label={`Coach score ${saved.result.score}`}>{saved.result.score}</b>}</button>; })}</div><div className="pagination"><button disabled={page === 0} onClick={() => { setPage(page - 1); setSelected((page - 1) * 14); }} aria-label="Previous 14 questions">←</button><span>{page + 1} / {Math.ceil(questions.length / 14)}</span><button disabled={page === Math.ceil(questions.length / 14) - 1} onClick={() => { setPage(page + 1); setSelected((page + 1) * 14); }} aria-label="Next 14 questions">→</button></div></aside>
       <section className="practice-panel" aria-labelledby="current-interview-question"><button className="question-list-toggle" onClick={() => setListOpen(!listOpen)} aria-expanded={listOpen}>☷ Question list</button><div className="question-meta"><span>{question.category}</span><span>Question {question.number} of {questions.length}</span></div><h2 id="current-interview-question">{question.prompt}</h2><button className="read-button" onClick={speakQuestion}>◖ Read question aloud</button>
         <div className="answer-mode" role="group" aria-label="Answer mode"><button className={answer.mode === "writing" ? "active" : ""} aria-pressed={answer.mode === "writing"} onClick={() => saveAnswer({ ...answer, mode: "writing" })}>⌨ Writing</button><button className={answer.mode === "speaking" ? "active" : ""} aria-pressed={answer.mode === "speaking"} onClick={() => saveAnswer({ ...answer, mode: "speaking" })}>● Speaking</button></div>
         {answer.mode === "speaking" && <SpeechPractice answerText={answer.text} language={preferences.practiceLanguage} onTranscript={(text) => saveAnswer({ ...answer, text, result: undefined, mode: "speaking", updatedAt: new Date().toISOString() })} onAnnounce={(message) => { if (preferences.verboseAnnouncements) announce(message); }} />}
         <label className="answer-area"><span className="sr-only">Your interview answer</span><textarea value={answer.text} onChange={(event) => saveAnswer({ ...answer, text: event.target.value, result: undefined, updatedAt: new Date().toISOString() })} placeholder="Shape your answer with context, your specific actions, and a measurable result…" /><span aria-hidden="true">{answer.text.trim() ? answer.text.trim().split(/\s+/).length : 0} words · aim for 90 seconds</span></label>
-        <div className="coach-actions"><button className="button button-soft" onClick={() => saveAnswer({ text: "", mode: answer.mode, updatedAt: new Date().toISOString() })}>↻ Reset</button><button className="button button-primary" disabled={!answer.text.trim()} onClick={coach}>✦ Coach my answer</button></div>
-        {answer.result && <div className="coach-result" aria-live="polite"><div className="coach-score"><span>{answer.result.score}</span><div><small>COACH SCORE</small><b>{coachScoreLabel(answer.result.score)}</b><p>Rubric {answer.result.rubricVersion} · Coaching guidance, not a hiring decision</p></div></div><div className="breakdown-grid">{answer.result.breakdown.map((item) => <div key={item.label}><span>{item.label}</span><b>{item.score}</b><div role="progressbar" aria-label={item.label} aria-valuenow={item.score} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${item.score}%` }} /></div></div>)}</div><div className="feedback-block"><h3>Why this score</h3>{answer.result.critique.map((item) => <p key={item}><span>→</span>{item}</p>)}</div><div className="model-answer"><div><span>✦</span><h3>A behaviorally anchored example</h3><small>Use the evidence pattern, never memorise the script.</small></div><p>{answer.result.modelAnswer}</p></div></div>}
+        <div className="coach-actions"><button className="button button-soft" disabled={coaching} onClick={() => saveAnswer({ text: "", mode: answer.mode, updatedAt: new Date().toISOString() })}>↻ Reset</button><button className="button button-primary" disabled={!answer.text.trim() || coaching} onClick={() => void coach()}>{coaching ? "✦ Reviewing evidence…" : "✦ Coach my answer"}</button></div>
+        {answer.result && <div className="coach-result" aria-live="polite"><div className="coach-score"><span>{answer.result.score}</span><div><small>COACH SCORE</small><b>{coachScoreLabel(answer.result.score)}</b><p>Rubric {answer.result.rubricVersion} · Coaching guidance, not a hiring decision</p><AIProvenanceBadge value={answer.result.provenance} /></div></div><div className="breakdown-grid">{answer.result.breakdown.map((item) => <div key={item.label}><span>{item.label}</span><b>{item.score}</b><div role="progressbar" aria-label={item.label} aria-valuenow={item.score} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${item.score}%` }} /></div></div>)}</div><div className="feedback-block"><h3>Why this score</h3>{answer.result.critique.map((item) => <p key={item}><span>→</span>{item}</p>)}</div><div className="model-answer"><div><span>✦</span><h3>A behaviorally anchored example</h3><small>Use the evidence pattern, never memorise the script.</small></div><p>{answer.result.modelAnswer}</p></div></div>}
       </section>
     </div>
     <div className="stage-next"><div><span>WHEN YOU’RE READY</span><b>Test your role and domain knowledge.</b></div><button className="button button-primary" onClick={onNext}>Open mastery quiz <span>→</span></button></div>
@@ -439,14 +615,27 @@ function MockInterview({ job, updateJob, onNext, preferences, announce }: { job:
 }
 
 function MasteryQuiz({ job, updateJob, onNext }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onNext: () => void }) {
-  const [count, setCount] = useState<5 | 10 | 15>(10); const questions = useMemo(() => generateQuiz(job, count), [job, count]);
+  const [count, setCount] = useState<5 | 10 | 15>(10);
+  const [questions, setQuestions] = useState<QuizQuestion[]>(() => generateQuiz(job, 10));
+  const [quizLoading, setQuizLoading] = useState(true);
+  const [quizRevision, setQuizRevision] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number>>({}); const [finished, setFinished] = useState(false);
   const correct = questions.filter((item) => answers[item.id] === item.correctIndex).length; const answered = Object.keys(answers).length; const score = Math.round((correct / count) * 100);
   function finish() { if (answered < count) return; const attempt: QuizAttempt = { id: makeId(), score, correct, total: count, createdAt: new Date().toISOString() }; updateJob({ quizAttempts: [...job.quizAttempts, attempt] }); setFinished(true); }
-  function restart(nextCount = count) { setCount(nextCount); setAnswers({}); setFinished(false); }
+  function restart(nextCount = count) { setCount(nextCount); setAnswers({}); setFinished(false); setQuizRevision((value) => value + 1); }
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) setQuizLoading(true); });
+    const quizJob = { id: job.id, title: job.title, description: job.description, analysis: job.analysis };
+    requestAI<QuizQuestion[]>("quiz", { job: quizJob, count })
+      .then(({ result }) => { if (!cancelled) setQuestions(result); })
+      .catch(() => { if (!cancelled) setQuestions(generateQuiz(quizJob, count)); })
+      .finally(() => { if (!cancelled) setQuizLoading(false); });
+    return () => { cancelled = true; };
+  }, [job.id, job.title, job.description, job.analysis, count, quizRevision]);
   return <>
-    <StageHeading title="Know the role. Not just the script." description="Test the judgement, concepts and trade-offs this role is likely to demand." action={<div className="count-picker"><span>Questions</span>{([5, 10, 15] as const).map((value) => <button key={value} className={count === value ? "active" : ""} onClick={() => restart(value)}>{value}</button>)}</div>} />
-    {!finished ? <div className="quiz-layout"><section className="quiz-progress-panel"><div className="quiz-progress-ring" style={{ "--progress": Math.round((answered / count) * 100) } as CSSProperties}><strong>{answered}</strong><span>/ {count}</span></div><h3>Your progress</h3><p>Choose an answer to reveal the reasoning immediately.</p><div className="quiz-dots">{questions.map((question, index) => <button key={question.id} className={answers[question.id] !== undefined ? answers[question.id] === question.correctIndex ? "correct" : "wrong" : ""} onClick={() => document.getElementById(question.id)?.scrollIntoView({ behavior: "smooth", block: "center" })}>{index + 1}</button>)}</div><button className="button button-primary" disabled={answered < count} onClick={finish}>Complete quiz →</button></section><section className="quiz-questions">{questions.map((question, questionIndex) => { const choice = answers[question.id]; return <article key={question.id} id={question.id} className={choice !== undefined ? "answered" : ""}><div className="quiz-number">{String(questionIndex + 1).padStart(2, "0")}</div><h2>{question.prompt}</h2><div className="quiz-options">{question.options.map((option, optionIndex) => <button key={option} disabled={choice !== undefined} className={choice !== undefined ? optionIndex === question.correctIndex ? "correct" : optionIndex === choice ? "wrong" : "muted" : ""} onClick={() => setAnswers({ ...answers, [question.id]: optionIndex })}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}<i>{choice !== undefined && optionIndex === question.correctIndex ? "✓" : choice === optionIndex ? "×" : ""}</i></button>)}</div>{choice !== undefined && <div className={choice === question.correctIndex ? "explanation correct" : "explanation"}><b>{choice === question.correctIndex ? "✓ Correct" : `The best answer is ${String.fromCharCode(65 + question.correctIndex)}`}</b><p>{question.explanation}</p></div>}</article>; })}</section></div> : <section className="quiz-summary"><span className="celebration">✦</span><p className="overline">MASTERY QUIZ COMPLETE</p><h1>{score >= 80 ? "You know your material." : "A solid baseline."}</h1><div className="summary-score"><strong>{score}</strong><span>/ 100</span></div><p>You answered <b>{correct} of {count}</b> questions correctly. {score >= 80 ? "You’re demonstrating strong role judgement." : "Review the explanations, then take another pass."}</p><div><button className="button button-soft" onClick={() => restart()}>↻ Try again</button><button className="button button-primary" onClick={onNext}>Build evidence bank →</button></div></section>}
+    <StageHeading title="Know the role. Not just the script." description="Test the judgement, concepts and trade-offs this role is likely to demand." action={<div className="stage-heading-actions"><AIProvenanceBadge value={questions[0]?.provenance} /><div className="count-picker"><span>{quizLoading ? "Personalising…" : "Questions"}</span>{([5, 10, 15] as const).map((value) => <button key={value} disabled={quizLoading} className={count === value ? "active" : ""} onClick={() => restart(value)}>{value}</button>)}</div></div>} />
+    {!finished ? <div className="quiz-layout"><section className="quiz-progress-panel"><div className="quiz-progress-ring" style={{ "--progress": Math.round((answered / count) * 100) } as CSSProperties}><strong>{answered}</strong><span>/ {count}</span></div><h3>{quizLoading ? "Building your quiz" : "Your progress"}</h3><p>{quizLoading ? "Mapping role requirements to applied judgement questions." : "Choose an answer to reveal the reasoning immediately."}</p><div className="quiz-dots">{questions.map((question, index) => <button key={question.id} disabled={quizLoading} className={answers[question.id] !== undefined ? answers[question.id] === question.correctIndex ? "correct" : "wrong" : ""} onClick={() => document.getElementById(question.id)?.scrollIntoView({ behavior: "smooth", block: "center" })}>{index + 1}</button>)}</div><button className="button button-primary" disabled={quizLoading || answered < count} onClick={finish}>Complete quiz →</button></section><section className={quizLoading ? "quiz-questions is-loading" : "quiz-questions"} aria-busy={quizLoading}>{questions.map((question, questionIndex) => { const choice = answers[question.id]; return <article key={question.id} id={question.id} className={choice !== undefined ? "answered" : ""}><div className="quiz-number">{String(questionIndex + 1).padStart(2, "0")}</div><h2>{question.prompt}</h2><div className="quiz-options">{question.options.map((option, optionIndex) => <button key={option} disabled={quizLoading || choice !== undefined} className={choice !== undefined ? optionIndex === question.correctIndex ? "correct" : optionIndex === choice ? "wrong" : "muted" : ""} onClick={() => setAnswers({ ...answers, [question.id]: optionIndex })}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}<i>{choice !== undefined && optionIndex === question.correctIndex ? "✓" : choice === optionIndex ? "×" : ""}</i></button>)}</div>{choice !== undefined && <div className={choice === question.correctIndex ? "explanation correct" : "explanation"}><b>{choice === question.correctIndex ? "✓ Correct" : `The best answer is ${String.fromCharCode(65 + question.correctIndex)}`}</b><p>{question.explanation}</p></div>}</article>; })}</section></div> : <section className="quiz-summary"><span className="celebration">✦</span><p className="overline">MASTERY QUIZ COMPLETE</p><h1>{score >= 80 ? "You know your material." : "A solid baseline."}</h1><div className="summary-score"><strong>{score}</strong><span>/ 100</span></div><p>You answered <b>{correct} of {count}</b> questions correctly. {score >= 80 ? "You’re demonstrating strong role judgement." : "Review the explanations, then take another pass."}</p><div><button className="button button-soft" onClick={() => restart()}>↻ Try again</button><button className="button button-primary" onClick={onNext}>Build evidence bank →</button></div></section>}
     {!finished && <div className="stage-next"><div><span>YOUR HISTORY</span><b>{job.quizAttempts.length ? `Latest saved score: ${job.quizAttempts.at(-1)?.score}%` : "Complete your first quiz to start a trend."}</b></div><button className="button button-soft" onClick={onNext}>Skip to evidence bank →</button></div>}
   </>;
 }
