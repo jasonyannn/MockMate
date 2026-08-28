@@ -4,6 +4,13 @@ MockMate turns a target job, resume and supporting profile into an evidence-back
 
 The public landing page uses Sign in with ChatGPT for account creation and sign-in. This is separate from Gmail/Google OAuth: MockMate receives a stable Site-specific user ID and email from the hosting platform, stores the account in D1, and isolates every workspace and uploaded document by that user ID. Anonymous visitors can view the landing page but cannot read, save, upload, or use personalised coaching endpoints.
 
+## Project documents
+
+- [`GOAL.md`](GOAL.md) — product purpose, users, scope, and success measures.
+- [`DESIGN.md`](DESIGN.md) — workflow, interaction model, visual system, and accessibility.
+- [`SECURITY.md`](SECURITY.md) — authentication, data isolation, AI safety, and threat considerations.
+- [`VERIFICATION.md`](VERIFICATION.md) — automated, functional, security, and release checks.
+
 ## Local development
 
 ```bash

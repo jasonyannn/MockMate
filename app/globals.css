@@ -96,6 +96,7 @@ h1, h2, h3, p { margin-top: 0; }
 .landing-links > a { color: #4b5851; font-size: 13px; font-weight: 650; }
 .landing-settings { align-items: center; background: rgba(29, 42, 36, .08); border-radius: 50%; display: flex; font-size: 13px; height: 37px; justify-content: center; width: 37px; }
 :root[data-theme="dark"] .landing-links > a { color: #bac3bd; }
+.landing-links > a.button-dark, :root[data-theme="dark"] .landing-links > a.button-dark { color: #fff; }
 .hero { align-items: center; display: grid; gap: 50px; grid-template-columns: minmax(0, 1fr) minmax(500px, .92fr); margin: 0 auto; max-width: 1240px; min-height: 650px; padding: 55px 30px 75px; }
 .eyebrow { align-items: center; color: #58645d; display: inline-flex; font-size: 10px; font-weight: 800; gap: 9px; letter-spacing: 1.5px; }
 .eyebrow i { background: #88ac00; border-radius: 50%; box-shadow: 0 0 0 5px rgba(148, 187, 0, .12); display: inline-block; height: 6px; width: 6px; }
