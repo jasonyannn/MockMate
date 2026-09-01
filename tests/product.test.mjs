@@ -42,6 +42,16 @@ test("analysis degrades LinkedIn reputation instead of inventing a score", () =>
   assert.equal(result.provenance.mode, "deterministic-fallback");
   assert.ok(result.alignmentScore >= 50 && result.alignmentScore <= 100);
   assert.ok(result.requirements.length >= 3);
+  assert.match(result.fitSummary, /not a hiring probability/i);
+  assert.ok(result.preparationPlan.length >= 1);
+  assert.equal(result.companyResearch.status, "not-available");
+});
+
+test("fallback analysis preserves safe target-role source links without inventing research", () => {
+  const result = analyseCandidate({ ...job, company: "Test Co", roleLinks: ["https://example.com/jobs/123", "javascript:alert(1)"] });
+  assert.equal(result.companyResearch.status, "links-only");
+  assert.deepEqual(result.companyResearch.sources.map((source) => source.url), ["https://example.com/jobs/123"]);
+  assert.match(result.companyResearch.overview, /OpenAI is connected/i);
 });
 
 test("question and quiz generators honour product counts", () => {

@@ -48,6 +48,7 @@ export function createBlankJob(): Job {
     title: "",
     company: "",
     description: "",
+    roleLinks: [],
     resume: null,
     resumeLibraryId: null,
     coverLetterDocument: null,
@@ -89,6 +90,7 @@ export function createDemoWorkspace(): Workspace {
     title: "Senior Product Manager, AI",
     company: "Lumon Labs",
     description: SAMPLE_JOB_DESCRIPTION,
+    roleLinks: [],
     resume: {
       id: "demo-resume",
       filename: "Maya_Chen_Product_Resume.pdf",

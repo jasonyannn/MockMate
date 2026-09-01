@@ -22,7 +22,7 @@ The site uses logical `DB` (D1) and `DOCUMENTS` (R2) bindings declared in `.open
 
 ### AI configuration
 
-AI calls run only from `/api/ai`; the browser never receives the provider key. For local AI, copy `.dev.vars.example` to `.dev.vars`, add `OPENAI_API_KEY`, and restart the dev server. `OPENAI_MODEL` defaults to `gpt-5.4-mini`.
+AI calls run only from `/api/ai`; the browser never receives the provider key. For local AI, copy `.dev.vars.example` to `.dev.vars`, add `OPENAI_API_KEY`, and restart the dev server. `OPENAI_MODEL` defaults to the current GPT-5.6 flagship alias.
 
 Without a key or during a provider outage, MockMate stays usable and labels the result as a verified deterministic fallback. The fallback is never presented as model output. In Sites production, configure the same variables as runtime environment variables rather than committing a secret.
 

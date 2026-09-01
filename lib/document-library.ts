@@ -49,6 +49,7 @@ export function normalizeDocumentLibrary(source: Workspace): Workspace {
 
   const jobs = source.jobs.map((job) => ({
     ...job,
+    roleLinks: Array.isArray(job.roleLinks) ? job.roleLinks : [],
     linkedinDocuments: Array.isArray(job.linkedinDocuments) ? job.linkedinDocuments : [],
     resumeLibraryId: job.resumeLibraryId && resumeLibrary.some((item) => item.id === job.resumeLibraryId)
       ? job.resumeLibraryId

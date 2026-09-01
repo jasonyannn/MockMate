@@ -3,7 +3,7 @@ import type { AnalysisResult, CoachResult, InterviewQuestion, Job, QuizQuestion,
 
 export const AI_SERVICE_CONFIG = {
   provider: "openai-responses-with-deterministic-fallback",
-  model: "gpt-5.4-mini",
+  model: "gpt-5.6",
   temperature: 0,
   analysisRubricVersion: "alignment-v2.0",
   coachingRubricVersion: "star-coach-v2.0",
@@ -53,7 +53,7 @@ export function detectRequirements(description: string, resumeText = ""): Requir
   }));
 }
 
-export function analyseCandidate(job: Pick<Job, "description" | "resume" | "coverLetterText" | "portfolioUrl" | "linkedinProfileText" | "linkedinDocuments">): AnalysisResult {
+export function analyseCandidate(job: Pick<Job, "description" | "resume" | "coverLetterText" | "portfolioUrl" | "linkedinProfileText" | "linkedinDocuments"> & Partial<Pick<Job, "title" | "company" | "roleLinks">>): AnalysisResult {
   const linkedinText = [job.linkedinProfileText, ...(job.linkedinDocuments ?? []).map((document) => document.extractedText)].filter(Boolean).join("\n");
   const candidateText = `${job.resume?.extractedText ?? ""}\n${job.coverLetterText}\n${linkedinText}`;
   const requirements = detectRequirements(job.description, candidateText);
@@ -75,6 +75,8 @@ export function analyseCandidate(job: Pick<Job, "description" | "resume" | "cove
       source: job.resume?.filename ?? "Candidate profile",
     }));
   const gaps = requirements.filter((item) => !item.covered).map((item) => item.label).slice(0, 5);
+  const resolvedGaps = gaps.length ? gaps : ["Add one recent quantified outcome to strengthen differentiation"];
+  const roleLinks = (job.roleLinks ?? []).filter((value) => /^https?:\/\//i.test(value)).slice(0, 5);
   const now = new Date().toISOString();
   return {
     id: id("analysis", `${candidateText}${job.description}${now.slice(0, 13)}`),
@@ -87,8 +89,21 @@ export function analyseCandidate(job: Pick<Job, "description" | "resume" | "cove
       { label: "Communication", score: communication, note: "Clarity, stakeholder range and narrative" },
     ],
     evidenceFound,
-    gaps: gaps.length ? gaps : ["Add one recent quantified outcome to strengthen differentiation"],
+    gaps: resolvedGaps,
     requirements,
+    fitSummary: `${alignmentScore >= 80 ? "Strong" : alignmentScore >= 65 ? "Promising" : "Developing"} evidence alignment for ${job.title || "this role"}. This is a preparation estimate, not a hiring probability, because applicant competition and interview performance are not visible.`,
+    companyResearch: {
+      overview: job.company ? `Live company research for ${job.company} becomes available when OpenAI is connected.` : "Add the company name and a reliable link to enable company research.",
+      roleContext: "The fallback assessment uses the supplied job description only and does not invent current company facts.",
+      signals: requirements.slice(0, 3).map((item) => item.label),
+      sources: roleLinks.map((url) => ({ title: "Source supplied with target role", url })),
+      status: roleLinks.length ? "links-only" : "not-available",
+    },
+    preparationPlan: resolvedGaps.slice(0, 4).map((gap) => ({
+      title: `Prepare evidence for ${gap}`,
+      action: "Build a concise STAR example with your decision, personal contribution and a measurable or observable result.",
+      reason: "The current candidate material does not yet provide strong, directly verifiable evidence for this role signal.",
+    })),
     createdAt: now,
     rubricVersion: AI_SERVICE_CONFIG.analysisRubricVersion,
     provenance: { mode: "deterministic-fallback", model: null, generatedAt: now, reason: "Model service was not used" },

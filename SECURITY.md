@@ -34,6 +34,8 @@ Anonymous visitors may view the marketing page and the non-sensitive AI-status e
 - AI requests are made only from the server; provider keys are never sent to the browser.
 - Job descriptions and candidate documents are treated as source material, not executable instructions.
 - Prompts prohibit invented candidate facts, qualifications, outcomes, or company claims.
+- Company research is isolated in a separate web-search request that receives role and employer context but no resume, cover-letter, LinkedIn, or portfolio evidence.
+- User-supplied role/company links are restricted to HTTP(S), clipped, and treated as untrusted source material.
 - Evidence quotes must be verifiable against user-supplied source text.
 - Provider requests disable response storage and use a pseudonymous safety identifier derived from the Site-specific user ID.
 - If AI is unavailable, the interface labels and uses a deterministic fallback instead of claiming model output.

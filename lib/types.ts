@@ -31,6 +31,25 @@ export type EvidenceMatch = {
   source: string;
 };
 
+export type ResearchSource = {
+  title: string;
+  url: string;
+};
+
+export type CompanyResearch = {
+  overview: string;
+  roleContext: string;
+  signals: string[];
+  sources: ResearchSource[];
+  status: "researched" | "links-only" | "not-available";
+};
+
+export type PreparationAction = {
+  title: string;
+  action: string;
+  reason: string;
+};
+
 export type AnalysisResult = {
   id: string;
   alignmentScore: number;
@@ -39,6 +58,9 @@ export type AnalysisResult = {
   evidenceFound: EvidenceMatch[];
   gaps: string[];
   requirements: Requirement[];
+  fitSummary: string;
+  companyResearch: CompanyResearch;
+  preparationPlan: PreparationAction[];
   createdAt: string;
   rubricVersion: string;
   provenance?: AIProvenance;
@@ -91,6 +113,7 @@ export type Job = {
   title: string;
   company: string;
   description: string;
+  roleLinks: string[];
   resume: DocumentRecord | null;
   resumeLibraryId: string | null;
   coverLetterDocument: DocumentRecord | null;
