@@ -1,5 +1,12 @@
 export type StageId = 1 | 2 | 3 | 4 | 5 | 6;
 
+export type AIProvenance = {
+  mode: "openai" | "deterministic-fallback";
+  model: string | null;
+  generatedAt: string;
+  reason?: string;
+};
+
 export type DocumentRecord = {
   id: string;
   filename: string;
@@ -24,6 +31,25 @@ export type EvidenceMatch = {
   source: string;
 };
 
+export type ResearchSource = {
+  title: string;
+  url: string;
+};
+
+export type CompanyResearch = {
+  overview: string;
+  roleContext: string;
+  signals: string[];
+  sources: ResearchSource[];
+  status: "researched" | "links-only" | "not-available";
+};
+
+export type PreparationAction = {
+  title: string;
+  action: string;
+  reason: string;
+};
+
 export type AnalysisResult = {
   id: string;
   alignmentScore: number;
@@ -32,8 +58,12 @@ export type AnalysisResult = {
   evidenceFound: EvidenceMatch[];
   gaps: string[];
   requirements: Requirement[];
+  fitSummary: string;
+  companyResearch: CompanyResearch;
+  preparationPlan: PreparationAction[];
   createdAt: string;
   rubricVersion: string;
+  provenance?: AIProvenance;
 };
 
 export type CoachResult = {
@@ -42,6 +72,7 @@ export type CoachResult = {
   critique: string[];
   modelAnswer: string;
   rubricVersion: string;
+  provenance?: AIProvenance;
 };
 
 export type InterviewAnswer = {
@@ -57,6 +88,7 @@ export type InterviewQuestion = {
   category: string;
   prompt: string;
   focus: string;
+  provenance?: AIProvenance;
 };
 
 export type QuizQuestion = {
@@ -65,6 +97,7 @@ export type QuizQuestion = {
   options: string[];
   correctIndex: number;
   explanation: string;
+  provenance?: AIProvenance;
 };
 
 export type QuizAttempt = {
@@ -80,9 +113,12 @@ export type Job = {
   title: string;
   company: string;
   description: string;
+  roleLinks: string[];
   resume: DocumentRecord | null;
+  resumeLibraryId: string | null;
   coverLetterDocument: DocumentRecord | null;
   coverLetterText: string;
+  coverLetterLibraryId: string | null;
   portfolioUrl: string;
   linkedinUrl: string;
   linkedinProfileText: string;
@@ -91,6 +127,8 @@ export type Job = {
   activeStage: StageId;
   analysis: AnalysisResult | null;
   analysisHistory: { score: number; at: string }[];
+  interviewQuestions?: InterviewQuestion[];
+  customInterviewQuestions?: InterviewQuestion[];
   interviewAnswers: Record<string, InterviewAnswer>;
   quizAttempts: QuizAttempt[];
   createdAt: string;
@@ -100,11 +138,28 @@ export type Job = {
 export type ProfileTemplate = {
   id: string;
   name: string;
+  resumeLibraryId: string | null;
+  coverLetterLibraryId: string | null;
   resume: DocumentRecord | null;
   coverLetterDocument: DocumentRecord | null;
   coverLetterText: string;
   portfolioUrl: string;
   linkedinUrl: string;
+  updatedAt: string;
+};
+
+export type SavedResume = {
+  id: string;
+  name: string;
+  document: DocumentRecord;
+  updatedAt: string;
+};
+
+export type SavedCoverLetter = {
+  id: string;
+  name: string;
+  document: DocumentRecord | null;
+  text: string;
   updatedAt: string;
 };
 
@@ -124,5 +179,7 @@ export type Workspace = {
   activeJobId: string;
   jobs: Job[];
   templates: ProfileTemplate[];
+  resumeLibrary: SavedResume[];
+  coverLetterLibrary: SavedCoverLetter[];
   evidenceItems: EvidenceItem[];
 };

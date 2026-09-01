@@ -48,9 +48,12 @@ export function createBlankJob(): Job {
     title: "",
     company: "",
     description: "",
+    roleLinks: [],
     resume: null,
+    resumeLibraryId: null,
     coverLetterDocument: null,
     coverLetterText: "",
+    coverLetterLibraryId: null,
     portfolioUrl: "",
     linkedinUrl: "",
     linkedinProfileText: "",
@@ -59,10 +62,25 @@ export function createBlankJob(): Job {
     activeStage: 1,
     analysis: null,
     analysisHistory: [],
+    interviewQuestions: [],
+    customInterviewQuestions: [],
     interviewAnswers: {},
     quizAttempts: [],
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+export function createBlankWorkspace(): Workspace {
+  const job = createBlankJob();
+  return {
+    version: 1,
+    activeJobId: job.id,
+    jobs: [job],
+    templates: [],
+    resumeLibrary: [],
+    coverLetterLibrary: [],
+    evidenceItems: [],
   };
 }
 
@@ -72,6 +90,7 @@ export function createDemoWorkspace(): Workspace {
     title: "Senior Product Manager, AI",
     company: "Lumon Labs",
     description: SAMPLE_JOB_DESCRIPTION,
+    roleLinks: [],
     resume: {
       id: "demo-resume",
       filename: "Maya_Chen_Product_Resume.pdf",
@@ -81,8 +100,10 @@ export function createDemoWorkspace(): Workspace {
       characterCount: SAMPLE_RESUME.length,
       status: "extracted",
     },
+    resumeLibraryId: "resume-product-ai",
     coverLetterDocument: null,
     coverLetterText: "I am excited by Lumon Labs' ambition to make AI-assisted work more useful, measurable and trustworthy. My background leading AI workflow products, customer discovery and cross-functional delivery closely matches the role's priorities.",
+    coverLetterLibraryId: "cover-ai-platform",
     portfolioUrl: "https://mayachen.product/portfolio",
     linkedinUrl: "https://www.linkedin.com/in/maya-chen-product",
     linkedinProfileText: "",
@@ -95,6 +116,8 @@ export function createDemoWorkspace(): Workspace {
       { score: 74, at: nowMinus(13) },
       { score: 79, at: nowMinus(6) },
     ],
+    interviewQuestions: [],
+    customInterviewQuestions: [],
     interviewAnswers: {},
     quizAttempts: [
       { id: "quiz-1", score: 70, correct: 7, total: 10, createdAt: nowMinus(9) },
@@ -113,11 +136,30 @@ export function createDemoWorkspace(): Workspace {
       {
         id: "template-product",
         name: "Product Leader — AI & SaaS",
+        resumeLibraryId: "resume-product-ai",
+        coverLetterLibraryId: "cover-ai-platform",
         resume: baseJob.resume,
         coverLetterDocument: null,
         coverLetterText: baseJob.coverLetterText,
         portfolioUrl: baseJob.portfolioUrl,
         linkedinUrl: baseJob.linkedinUrl,
+        updatedAt: nowMinus(2),
+      },
+    ],
+    resumeLibrary: [
+      {
+        id: "resume-product-ai",
+        name: "Product leadership — AI & SaaS",
+        document: baseJob.resume!,
+        updatedAt: nowMinus(2),
+      },
+    ],
+    coverLetterLibrary: [
+      {
+        id: "cover-ai-platform",
+        name: "AI platform — adaptable opener",
+        document: null,
+        text: baseJob.coverLetterText,
         updatedAt: nowMinus(2),
       },
     ],

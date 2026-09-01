@@ -6,6 +6,8 @@ interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   DOCUMENTS: R2Bucket;
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
