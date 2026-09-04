@@ -17,7 +17,7 @@ export async function getAIStatus(): Promise<AIStatus> {
   return response.json() as Promise<AIStatus>;
 }
 
-export async function requestAI<T>(action: "analyse" | "questions" | "coach" | "quiz", payload: unknown): Promise<AIResponse<T>> {
+export async function requestAI<T>(action: "analyse" | "questions" | "coach" | "quiz" | "terminology", payload: unknown): Promise<AIResponse<T>> {
   const response = await fetch("/api/ai", {
     method: "POST",
     headers: { "content-type": "application/json" },

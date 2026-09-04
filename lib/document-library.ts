@@ -51,6 +51,7 @@ export function normalizeDocumentLibrary(source: Workspace): Workspace {
     ...job,
     roleLinks: Array.isArray(job.roleLinks) ? job.roleLinks : [],
     linkedinDocuments: Array.isArray(job.linkedinDocuments) ? job.linkedinDocuments : [],
+    terminologyQuizAttempts: Array.isArray(job.terminologyQuizAttempts) ? job.terminologyQuizAttempts : [],
     resumeLibraryId: job.resumeLibraryId && resumeLibrary.some((item) => item.id === job.resumeLibraryId)
       ? job.resumeLibraryId
       : saveResume(job.resume, documentDisplayName(job.resume?.filename ?? "")),

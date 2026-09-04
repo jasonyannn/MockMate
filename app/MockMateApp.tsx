@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { SettingsDialog } from "./SettingsDialog";
 import { SpeechPractice } from "./SpeechPractice";
+import { TerminologyLab } from "./TerminologyLab";
 import { getAIStatus, requestAI } from "@/lib/ai-client";
 import { AI_SERVICE_CONFIG, analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "@/lib/ai-service";
 import { createBlankJob, createBlankWorkspace, SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@/lib/demo-data";
@@ -18,7 +19,7 @@ const STAGES: { id: StageId; label: string; short: string }[] = [
   { id: 1, label: "Role & documents", short: "Role" },
   { id: 2, label: "Candidate analysis", short: "Analysis" },
   { id: 3, label: "Mock interview", short: "Interview" },
-  { id: 4, label: "Mastery quiz", short: "Quiz" },
+  { id: 4, label: "Knowledge lab", short: "Fluency" },
   { id: 5, label: "Evidence bank", short: "Evidence" },
   { id: 6, label: "Dashboard", short: "Dashboard" },
 ];
@@ -63,7 +64,7 @@ function WorkflowStatus({ job, completed, aiStatus }: { job: Job; completed: num
   const stage = STAGES.find((item) => item.id === job.activeStage) ?? STAGES[0];
   return <section className="workflow-status" aria-label="Preparation workflow status">
     <div><span>OUTCOME</span><b>Interview-ready for {job.title || "your target role"}</b></div>
-    <div><span>CURRENT ACTION</span><b>{stage.label}</b><small>{stage.id === 1 ? "Ground the plan in role and candidate evidence" : stage.id === 2 ? "Verify fit, proof and genuine gaps" : stage.id === 3 ? "Practise and improve priority answers" : stage.id === 4 ? "Verify role judgement" : stage.id === 5 ? "Turn claims into reusable proof" : "Review evidence and choose the next action"}</small></div>
+    <div><span>CURRENT ACTION</span><b>{stage.label}</b><small>{stage.id === 1 ? "Ground the plan in role and candidate evidence" : stage.id === 2 ? "Verify fit, proof and genuine gaps" : stage.id === 3 ? "Practise and improve priority answers" : stage.id === 4 ? "Build fluency and test role judgement" : stage.id === 5 ? "Turn claims into reusable proof" : "Review evidence and choose the next action"}</small></div>
     <div><span>VERIFIED EVIDENCE</span><b>{completed} of 5 preparation gates</b><small>{aiStatus?.configured ? `AI reasoning active · ${aiStatus.model}` : "Rubric fallback active · AI key not connected"}</small></div>
   </section>;
 }
@@ -214,7 +215,7 @@ export function MockMateApp({ user, signInPath, signOutPath }: { user: MockMateU
     if (stage === 1) return Boolean(activeJob.title && activeJob.description && activeJob.resume);
     if (stage === 2) return Boolean(activeJob.analysis);
     if (stage === 3) return Object.keys(activeJob.interviewAnswers).length > 0;
-    if (stage === 4) return activeJob.quizAttempts.length > 0;
+    if (stage === 4) return activeJob.quizAttempts.length > 0 || (activeJob.terminologyQuizAttempts?.length ?? 0) > 0;
     if (stage === 5) return workspace.evidenceItems.length > 0;
     return false;
   };
@@ -228,7 +229,7 @@ export function MockMateApp({ user, signInPath, signOutPath }: { user: MockMateU
         <div className="sidebar-top"><button className="brand brand-button" onClick={() => setEntered(false)}><BrandMark /><span>MockMate</span></button><button className="mobile-close" onClick={() => setMobileNav(false)} aria-label="Close navigation">×</button></div>
         <div className="workspace-label">PREP WORKSPACE</div>
         <nav className="stage-nav" aria-label="Preparation stages">
-          {STAGES.map((stage) => <button key={stage.id} className={activeJob.activeStage === stage.id ? "active" : ""} onClick={() => setStage(stage.id)} aria-current={activeJob.activeStage === stage.id ? "step" : undefined}><span className={stageComplete(stage.id) ? "complete" : ""}>{stageComplete(stage.id) ? "✓" : stage.id}<i className="sr-only">{stageComplete(stage.id) ? "Complete" : "Not complete"}</i></span><div><b>{stage.label}</b><small>{stage.id === 1 ? "Target & profile" : stage.id === 2 ? "Fit & gaps" : stage.id === 3 ? "Practise & coach" : stage.id === 4 ? "Test your knowledge" : stage.id === 5 ? "Your proof points" : "Readiness at a glance"}</small></div></button>)}
+          {STAGES.map((stage) => <button key={stage.id} className={activeJob.activeStage === stage.id ? "active" : ""} onClick={() => setStage(stage.id)} aria-current={activeJob.activeStage === stage.id ? "step" : undefined}><span className={stageComplete(stage.id) ? "complete" : ""}>{stageComplete(stage.id) ? "✓" : stage.id}<i className="sr-only">{stageComplete(stage.id) ? "Complete" : "Not complete"}</i></span><div><b>{stage.label}</b><small>{stage.id === 1 ? "Target & profile" : stage.id === 2 ? "Fit & gaps" : stage.id === 3 ? "Practise & coach" : stage.id === 4 ? "Study terms & test" : stage.id === 5 ? "Your proof points" : "Readiness at a glance"}</small></div></button>)}
         </nav>
         <div className="sidebar-card"><span>✦</span><div><b>Prep momentum</b><p>{Math.round((completedStages / 5) * 100)}% of your plan is verified</p><div><i style={{ width: `${Math.round((completedStages / 5) * 100)}%` }} /></div></div></div>
         <div className="sidebar-foot"><a href={signOutPath} title="Sign out of MockMate"><span className="avatar">{user?.displayName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "MM"}</span><div><b>{user?.displayName || "MockMate user"}</b><small>{user?.email || "Private account"}</small></div><i>Sign out</i></a></div>
@@ -245,7 +246,7 @@ export function MockMateApp({ user, signInPath, signOutPath }: { user: MockMateU
           {activeJob.activeStage === 1 && <RoleDocuments key={activeJob.id} job={activeJob} templates={workspace.templates} resumeLibrary={workspace.resumeLibrary} coverLetterLibrary={workspace.coverLetterLibrary} updateJob={updateActiveJob} updateTemplates={(templates) => setWorkspace((current) => ({ ...current, templates }))} updateResumeLibrary={(resumeLibrary) => setWorkspace((current) => ({ ...current, resumeLibrary }))} updateCoverLetterLibrary={(coverLetterLibrary) => setWorkspace((current) => ({ ...current, coverLetterLibrary }))} onAnalyse={() => setStage(2)} />}
           {activeJob.activeStage === 2 && <CandidateAnalysis job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(3)} />}
           {activeJob.activeStage === 3 && <MockInterview job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(4)} preferences={preferences} announce={setAnnouncement} />}
-          {activeJob.activeStage === 4 && <MasteryQuiz job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(5)} />}
+          {activeJob.activeStage === 4 && <KnowledgeLab job={activeJob} updateJob={updateActiveJob} onNext={() => setStage(5)} />}
           {activeJob.activeStage === 5 && <EvidenceBank job={activeJob} items={workspace.evidenceItems} updateItems={(evidenceItems) => setWorkspace((current) => ({ ...current, evidenceItems }))} onNext={() => setStage(6)} />}
           {activeJob.activeStage === 6 && <Dashboard job={activeJob} evidenceItems={workspace.evidenceItems} onReviewGaps={() => setStage(2)} />}
         </main>
@@ -671,6 +672,18 @@ function MockInterview({ job, updateJob, onNext, preferences, announce }: { job:
   </>;
 }
 
+function KnowledgeLab({ job, updateJob, onNext }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onNext: () => void }) {
+  const [mode, setMode] = useState<"terminology" | "mastery">("terminology");
+  return <>
+    <StageHeading eyebrow="KNOWLEDGE LAB" title="Learn the language. Prove the judgement." description="Build plain-English fluency across departments, then test either the terms or the decisions your target role demands." />
+    <div className="knowledge-lab-switch" role="tablist" aria-label="Knowledge lab mode">
+      <button role="tab" aria-selected={mode === "terminology"} className={mode === "terminology" ? "active" : ""} onClick={() => setMode("terminology")}><span>01</span><div><b>Terminology fluency</b><small>Study plain-English terms across 9 departments</small></div><i>→</i></button>
+      <button role="tab" aria-selected={mode === "mastery"} className={mode === "mastery" ? "active" : ""} onClick={() => setMode("mastery")}><span>02</span><div><b>Role mastery</b><small>Test judgement and trade-offs for this role</small></div><i>→</i></button>
+    </div>
+    {mode === "terminology" ? <TerminologyLab job={job} updateJob={updateJob} onNext={onNext} /> : <MasteryQuiz job={job} updateJob={updateJob} onNext={onNext} />}
+  </>;
+}
+
 function MasteryQuiz({ job, updateJob, onNext }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onNext: () => void }) {
   const [count, setCount] = useState<5 | 10 | 15>(10);
   const [questions, setQuestions] = useState<QuizQuestion[]>(() => generateQuiz(job, 10));
@@ -719,13 +732,13 @@ function EvidenceEditor({ item, onSave, onDelete, onClose }: { item: EvidenceIte
 }
 
 function Dashboard({ job, evidenceItems, onReviewGaps }: { job: Job; evidenceItems: EvidenceItem[]; onReviewGaps: () => void }) {
-  const analysis = job.analysis ?? analyseCandidate(job); const answers = Object.values(job.interviewAnswers).filter((item) => item.result); const average = answers.length ? Math.round(answers.reduce((sum, item) => sum + (item.result?.score ?? 0), 0) / answers.length) : 0; const latestQuiz = job.quizAttempts.at(-1)?.score ?? 0; const readiness = Math.round(analysis.alignmentScore * 0.4 + (average || 55) * 0.25 + (latestQuiz || 60) * 0.2 + Math.min(100, evidenceItems.length * 18) * 0.15);
+  const analysis = job.analysis ?? analyseCandidate(job); const answers = Object.values(job.interviewAnswers).filter((item) => item.result); const average = answers.length ? Math.round(answers.reduce((sum, item) => sum + (item.result?.score ?? 0), 0) / answers.length) : 0; const terminologyAttempts = job.terminologyQuizAttempts ?? []; const knowledgeAttempts = [...job.quizAttempts.map((attempt) => ({ ...attempt, kind: "Role mastery" })), ...terminologyAttempts.map((attempt) => ({ ...attempt, kind: "Terminology" }))].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()); const latestKnowledge = knowledgeAttempts.at(-1)?.score ?? 0; const readiness = Math.round(analysis.alignmentScore * 0.4 + (average || 55) * 0.25 + (latestKnowledge || 60) * 0.2 + Math.min(100, evidenceItems.length * 18) * 0.15);
   const history = job.analysisHistory.length ? job.analysisHistory : [{ score: analysis.alignmentScore, at: analysis.createdAt }];
   return <>
     <StageHeading eyebrow="YOUR READINESS" title="You’re building real momentum." description={`Your preparation for ${job.title || "this role"} is becoming specific, evidence-backed and easier to recall under pressure.`} action={<button className="button button-soft" onClick={() => window.print()}>↗ Export summary</button>} />
     <section className="readiness-hero"><div className="readiness-ring" style={{ "--readiness": readiness } as CSSProperties}><div><strong>{readiness}</strong><span>readiness</span></div></div><div><span className="overline">OVERALL PREPARATION</span><h2>{readiness >= 80 ? "Interview ready" : "Nearly there"}</h2><p>{readiness >= 80 ? "Your evidence and role knowledge are strong. Keep answers concise and protect your best metrics." : "Close the remaining evidence gaps and coach three more answers to push this plan over the line."}</p><div className="readiness-tags"><span>✓ Role analysed</span><span>✓ Evidence organised</span><span className={answers.length >= 3 ? "" : "pending"}>{answers.length >= 3 ? "✓" : "○"} 3 answers coached</span></div></div><button className="button button-primary" onClick={onReviewGaps}>Review {analysis.gaps.length} evidence gaps →</button></section>
-    <div className="metric-grid"><article><span className="metric-icon coral">↗</span><div><small>ALIGNMENT</small><strong>{analysis.alignmentScore}<i>/100</i></strong><p><b>+{Math.max(0, analysis.alignmentScore - history[0].score)}</b> since first analysis</p></div></article><article><span className="metric-icon purple">◉</span><div><small>INTERVIEW PRACTICE</small><strong>{Object.keys(job.interviewAnswers).length}<i>/112</i></strong><p>{average ? <><b>{average}</b> average coach score</> : "Start with three priority questions"}</p></div></article><article><span className="metric-icon blue">◇</span><div><small>MASTERY</small><strong>{latestQuiz || "—"}<i>{latestQuiz ? "%" : ""}</i></strong><p>{job.quizAttempts.length} quiz attempt{job.quizAttempts.length === 1 ? "" : "s"} saved</p></div></article><article><span className="metric-icon gold">✦</span><div><small>EVIDENCE BANK</small><strong>{evidenceItems.length}<i>items</i></strong><p><b>{analysis.gaps.length}</b> gaps still open</p></div></article></div>
+    <div className="metric-grid"><article><span className="metric-icon coral">↗</span><div><small>ALIGNMENT</small><strong>{analysis.alignmentScore}<i>/100</i></strong><p><b>+{Math.max(0, analysis.alignmentScore - history[0].score)}</b> since first analysis</p></div></article><article><span className="metric-icon purple">◉</span><div><small>INTERVIEW PRACTICE</small><strong>{Object.keys(job.interviewAnswers).length}<i>/112</i></strong><p>{average ? <><b>{average}</b> average coach score</> : "Start with three priority questions"}</p></div></article><article><span className="metric-icon blue">◇</span><div><small>KNOWLEDGE</small><strong>{latestKnowledge || "—"}<i>{latestKnowledge ? "%" : ""}</i></strong><p>{knowledgeAttempts.length} quiz attempt{knowledgeAttempts.length === 1 ? "" : "s"} saved</p></div></article><article><span className="metric-icon gold">✦</span><div><small>EVIDENCE BANK</small><strong>{evidenceItems.length}<i>items</i></strong><p><b>{analysis.gaps.length}</b> gaps still open</p></div></article></div>
     <div className="dashboard-grid"><section className="panel trend-panel"><div className="panel-head"><div><span className="overline">ALIGNMENT TREND</span><h2>Your profile is getting sharper</h2></div><span className="mini-pill">Last {history.length} analyses</span></div><div className="chart-area"><div className="chart-lines"><i /><i /><i /><i /></div><div className="chart-bars">{history.map((point, index) => <div key={`${point.at}-${index}`}><b style={{ bottom: `${Math.max(8, point.score - 45)}%` }}>{point.score}</b><span style={{ height: `${Math.max(12, point.score - 40)}%` }} /><small>{formatDate(point.at)}</small></div>)}</div></div></section><section className="panel focus-panel"><div className="panel-head"><div><span className="overline">NEXT BEST ACTIONS</span><h2>Highest-leverage prep</h2></div></div><div className="action-list">{analysis.gaps.slice(0, 3).map((gap, index) => <button key={gap} onClick={onReviewGaps}><span>{String(index + 1).padStart(2, "0")}</span><div><b>Prepare evidence for {gap}</b><p>Add a concrete situation, action and outcome.</p></div><i>→</i></button>)}{answers.length < 3 && <button><span>{String(Math.min(4, analysis.gaps.length + 1)).padStart(2, "0")}</span><div><b>Coach {3 - answers.length} priority answer{3 - answers.length === 1 ? "" : "s"}</b><p>Build calm through a repeatable STAR structure.</p></div><i>→</i></button>}</div></section></div>
-    <section className="panel activity-panel"><div className="panel-head"><div><span className="overline">PREPARATION HISTORY</span><h2>Small sessions, compounding confidence</h2></div></div><div className="activity-list"><div><span className="activity-dot coral">↗</span><div><b>Candidate analysis completed</b><p>{analysis.evidenceFound.length} matching proof points and {analysis.gaps.length} gaps identified</p></div><small>{formatDate(analysis.createdAt)}</small></div>{job.quizAttempts.slice(-2).reverse().map((attempt) => <div key={attempt.id}><span className="activity-dot blue">◇</span><div><b>Mastery quiz · {attempt.score}%</b><p>{attempt.correct} of {attempt.total} questions correct</p></div><small>{formatDate(attempt.createdAt)}</small></div>)}{evidenceItems.slice(0, 2).map((item) => <div key={item.id}><span className="activity-dot gold">✦</span><div><b>Evidence saved · {item.title}</b><p>{item.metric || item.description.slice(0, 75)}</p></div><small>{formatDate(item.createdAt)}</small></div>)}</div></section>
+    <section className="panel activity-panel"><div className="panel-head"><div><span className="overline">PREPARATION HISTORY</span><h2>Small sessions, compounding confidence</h2></div></div><div className="activity-list"><div><span className="activity-dot coral">↗</span><div><b>Candidate analysis completed</b><p>{analysis.evidenceFound.length} matching proof points and {analysis.gaps.length} gaps identified</p></div><small>{formatDate(analysis.createdAt)}</small></div>{knowledgeAttempts.slice(-3).reverse().map((attempt) => <div key={attempt.id}><span className="activity-dot blue">◇</span><div><b>{attempt.kind} quiz · {attempt.score}%</b><p>{attempt.correct} of {attempt.total} questions correct</p></div><small>{formatDate(attempt.createdAt)}</small></div>)}{evidenceItems.slice(0, 2).map((item) => <div key={item.id}><span className="activity-dot gold">✦</span><div><b>Evidence saved · {item.title}</b><p>{item.metric || item.description.slice(0, 75)}</p></div><small>{formatDate(item.createdAt)}</small></div>)}</div></section>
   </>;
 }

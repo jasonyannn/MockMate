@@ -97,6 +97,8 @@ export type QuizQuestion = {
   options: string[];
   correctIndex: number;
   explanation: string;
+  category?: TerminologyCategory;
+  focusTerm?: string;
   provenance?: AIProvenance;
 };
 
@@ -106,6 +108,33 @@ export type QuizAttempt = {
   correct: number;
   total: number;
   createdAt: string;
+};
+
+export type TerminologyCategory =
+  | "AI & automation"
+  | "Technology & data"
+  | "Marketing & creator economy"
+  | "People & HR"
+  | "Sales & customer success"
+  | "Finance & commercial"
+  | "Operations & strategy"
+  | "Product & design"
+  | "Legal, risk & governance";
+
+export type StudyTerm = {
+  id: string;
+  category: TerminologyCategory;
+  term: string;
+  definition: string;
+  inPractice: string;
+  example: string;
+  whyItMatters: string;
+};
+
+export type TerminologySheet = {
+  terms: StudyTerm[];
+  generatedAt: string;
+  provenance: AIProvenance;
 };
 
 export type Job = {
@@ -131,6 +160,8 @@ export type Job = {
   customInterviewQuestions?: InterviewQuestion[];
   interviewAnswers: Record<string, InterviewAnswer>;
   quizAttempts: QuizAttempt[];
+  terminologySheet?: TerminologySheet;
+  terminologyQuizAttempts?: QuizAttempt[];
   createdAt: string;
   updatedAt: string;
 };

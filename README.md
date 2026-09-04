@@ -1,6 +1,6 @@
 # MockMate
 
-MockMate turns a target job, resume and supporting profile into an evidence-backed preparation plan. The application includes independently named resume and cover-letter libraries, optional application kits that pair them, AI-assisted candidate-to-role analysis, role-specific and user-authored interview questions, behaviorally anchored interview scoring with AI coaching, adaptive mastery quizzes, a user-level evidence bank, readiness trends, document extraction, responsive layouts and persisted light/dark themes.
+MockMate turns a target job, resume and supporting profile into an evidence-backed preparation plan. The application includes independently named resume and cover-letter libraries, optional application kits that pair them, AI-assisted candidate-to-role analysis, role-specific and user-authored interview questions, behaviorally anchored interview scoring with AI coaching, a cross-department terminology study sheet and quiz lab, adaptive role-mastery quizzes, a user-level evidence bank, readiness trends, document extraction, responsive layouts and persisted light/dark themes.
 
 The public landing page uses Sign in with ChatGPT for account creation and sign-in. This is separate from Gmail/Google OAuth: MockMate receives a stable Site-specific user ID and email from the hosting platform, stores the account in D1, and isolates every workspace and uploaded document by that user ID. Anonymous visitors can view the landing page but cannot read, save, upload, or use personalised coaching endpoints.
 
@@ -25,6 +25,8 @@ The site uses logical `DB` (D1) and `DOCUMENTS` (R2) bindings declared in `.open
 AI calls run only from `/api/ai`; the browser never receives the provider key. For local AI, copy `.dev.vars.example` to `.dev.vars`, add `OPENAI_API_KEY`, and restart the dev server. `OPENAI_MODEL` defaults to the current GPT-5.6 flagship alias.
 
 Without a key or during a provider outage, MockMate stays usable and labels the result as a verified deterministic fallback. The fallback is never presented as model output. In Sites production, configure the same variables as runtime environment variables rather than committing a secret.
+
+The Knowledge Lab always includes a curated plain-English glossary spanning AI and automation, technology and data, marketing and the creator economy, people and HR, sales, finance, operations, product, and governance. When AI is configured, it adds role-personalised terminology while retaining full category coverage. Terminology and role-mastery quiz scores are saved separately and combined in the readiness dashboard.
 
 ## Preparation workflow
 

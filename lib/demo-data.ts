@@ -66,6 +66,7 @@ export function createBlankJob(): Job {
     customInterviewQuestions: [],
     interviewAnswers: {},
     quizAttempts: [],
+    terminologyQuizAttempts: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -123,6 +124,7 @@ export function createDemoWorkspace(): Workspace {
       { id: "quiz-1", score: 70, correct: 7, total: 10, createdAt: nowMinus(9) },
       { id: "quiz-2", score: 80, correct: 8, total: 10, createdAt: nowMinus(3) },
     ],
+    terminologyQuizAttempts: [],
     createdAt: nowMinus(24),
     updatedAt: new Date().toISOString(),
   };

@@ -6,6 +6,7 @@ import { extractLinkedInArchiveText, extractRtfText } from "../lib/document-extr
 import { analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "../lib/ai-service.ts";
 import { readPreferences } from "../lib/preferences.ts";
 import { documentDisplayName, normalizeDocumentLibrary } from "../lib/document-library.ts";
+import { generateStudySheet, generateTerminologyQuiz, recommendedTerminologyCategories, TERMINOLOGY_CATEGORIES } from "../lib/terminology.ts";
 
 const resume = "Led AI product strategy and customer discovery. Increased adoption by 31% and worked cross-functionally with engineering and design.";
 const description = "Lead AI product strategy, customer discovery, cross-functional delivery, analytics and executive communication.";
@@ -61,6 +62,35 @@ test("question and quiz generators honour product counts", () => {
   assert.equal(new Set(questions.map((question) => question.id)).size, 112);
   assert.equal(generateQuiz(analysedJob, 5).length, 5);
   assert.equal(generateQuiz(analysedJob, 15).length, 15);
+});
+
+test("terminology study sheets cover every business department in plain English", () => {
+  const sheet = generateStudySheet({ title: "Marketing Manager", description: "Lead AI-assisted creator campaigns and social content." });
+  assert.equal(TERMINOLOGY_CATEGORIES.length, 9);
+  assert.equal(sheet.terms.length, 45);
+  for (const category of TERMINOLOGY_CATEGORIES) {
+    const categoryTerms = sheet.terms.filter((term) => term.category === category);
+    assert.ok(categoryTerms.length >= 5, `${category} should have at least five terms`);
+    assert.ok(categoryTerms.every((term) => term.definition.length > 20 && term.inPractice.length > 20 && term.example.length > 15 && term.whyItMatters.length > 20));
+  }
+  const recommended = recommendedTerminologyCategories({ title: "Marketing Manager", description: "AI creator campaigns" });
+  assert.ok(recommended.includes("Marketing & creator economy"));
+  assert.ok(recommended.includes("AI & automation"));
+});
+
+test("terminology quizzes contain distinct terms and one valid answer", () => {
+  const sheet = generateStudySheet({ title: "Operations Lead", description: "Improve cross-functional service delivery." });
+  const quiz = generateTerminologyQuiz(sheet.terms, 15);
+  assert.equal(quiz.length, 15);
+  assert.equal(new Set(quiz.map((question) => question.focusTerm)).size, 15);
+  assert.equal(new Set(quiz.map((question) => question.id)).size, 15);
+  for (const question of quiz) {
+    assert.equal(question.options.length, 4);
+    assert.equal(new Set(question.options).size, 4);
+    assert.ok(question.correctIndex >= 0 && question.correctIndex <= 3);
+    const term = sheet.terms.find((item) => item.term === question.focusTerm);
+    assert.equal(question.options[question.correctIndex], term.definition);
+  }
 });
 
 test("coaching identifies quantified, structured answers", () => {
@@ -130,4 +160,5 @@ test("legacy saved workspaces are upgraded into the document library", () => {
   assert.equal(upgraded.coverLetterLibrary.length, 1);
   assert.ok(upgraded.jobs[0].resumeLibraryId);
   assert.ok(upgraded.jobs[0].coverLetterLibraryId);
+  assert.deepEqual(upgraded.jobs[0].terminologyQuizAttempts, []);
 });
