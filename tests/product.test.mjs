@@ -67,7 +67,7 @@ test("question and quiz generators honour product counts", () => {
 test("terminology study sheets cover every business department in plain English", () => {
   const sheet = generateStudySheet({ title: "Marketing Manager", description: "Lead AI-assisted creator campaigns and social content." });
   assert.equal(TERMINOLOGY_CATEGORIES.length, 10);
-  assert.equal(sheet.terms.length, 84);
+  assert.equal(sheet.terms.length, 89);
   for (const category of TERMINOLOGY_CATEGORIES) {
     const categoryTerms = sheet.terms.filter((term) => term.category === category);
     assert.ok(categoryTerms.length >= 5, `${category} should have at least five terms`);
@@ -81,7 +81,12 @@ test("terminology study sheets cover every business department in plain English"
   assert.ok(sheet.terms.some((term) => term.term === "Vite build"));
   assert.ok(sheet.terms.some((term) => term.term === "Markdown (.md)"));
   assert.ok(sheet.terms.some((term) => term.term === "Model Context Protocol (MCP)"));
-  assert.equal(sheet.sources.length, 5);
+  assert.ok(sheet.terms.some((term) => term.term === "Vision-language model (VLM)"));
+  assert.ok(sheet.terms.some((term) => term.term === "Vision-language-action model (VLA)"));
+  assert.ok(sheet.terms.some((term) => term.term === "Agentic RAG"));
+  assert.ok(sheet.terms.some((term) => term.term === "Multimodal RAG"));
+  assert.ok(sheet.terms.some((term) => term.term === "GraphRAG"));
+  assert.equal(sheet.sources.length, 8);
 });
 
 test("terminology quizzes contain distinct terms and one valid answer", () => {

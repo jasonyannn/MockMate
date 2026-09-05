@@ -139,7 +139,7 @@ export function TerminologyLab({ job, updateJob, onNext }: Props) {
 
     <div className="term-source-strip">
       <div><span>{job.terminologySheet?.provenance.mode === "openai" ? "✦" : "◇"}</span><div><b>{job.terminologySheet?.provenance.mode === "openai" ? "Current terminology checked with live web research" : "Curated against current official references"}</b><small>Model names change quickly. MockMate uses official sources instead of guessing future versions.</small></div></div>
-      <div>{sources.slice(0, 5).map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer">{source.title} ↗</a>)}</div>
+      <div>{sources.slice(0, 8).map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer">{source.title} ↗</a>)}</div>
     </div>
 
     {message && <p className="term-message" role="status">{message}</p>}
