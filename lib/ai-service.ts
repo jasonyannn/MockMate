@@ -1,4 +1,5 @@
 import { keywordCoverage, scoreAnswerCore, stableHash, tokenize } from "./scoring-core.ts";
+import { publicQuestionSources } from "./public-interview-data.ts";
 import type { AnalysisResult, CoachResult, InterviewQuestion, Job, QuizQuestion, Requirement } from "./types.ts";
 
 export const AI_SERVICE_CONFIG = {
@@ -127,10 +128,57 @@ const QUESTION_STEMS = [
   "How would you explain a complex decision about {focus} to an executive audience?",
 ] as const;
 
+function hardInterviewQuestions(job: Pick<Job, "title" | "description">): InterviewQuestion[] {
+  const isAIRole = /\bAI\b|artificial intelligence|machine learning|LLM|automat|transformation|innovation/i.test(`${job.title} ${job.description}`);
+  return [
+    {
+      id: id("q-hard", `${job.title}-manager-trust`),
+      number: 1,
+      category: "Executive influence",
+      prompt: isAIRole
+        ? "How would you convince a manager on day one who doesn’t know AI that you’re a good fit?"
+        : "How would you convince a manager on day one that you understand their team and are a good fit?",
+      focus: "executive presence, business communication and trust-building",
+      difficulty: "hard",
+      whyAsked: "This tests whether you listen before prescribing, communicate in business outcomes and build trust with a non-technical stakeholder.",
+      answerGuide: ["Discover the team’s goals and friction", "Translate capability into business outcomes", "Propose one small, measurable proof", "Earn trust before asking to scale"],
+      sources: publicQuestionSources("industry-ai-guardrails", "oaic-ai-privacy"),
+    },
+    {
+      id: id("q-hard", `${job.title}-first-90-days`),
+      number: 2,
+      category: isAIRole ? "AI transformation" : "Transformation",
+      prompt: isAIRole ? "How would you run AI in the first 60–90 days?" : "How would you improve this team’s way of working in your first 60–90 days?",
+      focus: "discovery, prioritisation, governance, pilots, ROI, adoption and scaling",
+      difficulty: "hard",
+      whyAsked: "This tests whether you can turn ambition into a sequenced operating plan with safeguards, ownership and evidence of value.",
+      answerGuide: ["Days 1–30: discover and map friction", "Days 30–60: prioritise and pilot", "Days 60–90: measure, learn and improve", "Scale only when evidence and adoption support it"],
+      sources: publicQuestionSources("industry-ai-guardrails", "jsa-nero"),
+    },
+    {
+      id: id("q-hard", `${job.title}-change-operating-model`),
+      number: 3,
+      category: "Operating model",
+      prompt: "How have you automated or changed a team’s way of working?",
+      focus: "workflow redesign, stakeholder collaboration, access controls and measurable impact",
+      difficulty: "hard",
+      whyAsked: "This tests whether you have changed a real workflow or operating model, rather than only building a standalone tool.",
+      answerGuide: ["Describe the old workflow and its friction", "Explain your personal decisions and collaboration", "Cover data access, risk or controls", "Show the before → after change and impact"],
+      sources: publicQuestionSources("australian-skills-classification", "oaic-ai-privacy"),
+    },
+  ];
+}
+
+export function hasCurrentInterviewQuestionPack(questions: InterviewQuestion[] | undefined): boolean {
+  return questions?.length === 112 && questions.slice(0, 3).every((question) => question.difficulty === "hard" && question.answerGuide?.length);
+}
+
 export function generateInterviewQuestions(job: Pick<Job, "title" | "description" | "analysis">): InterviewQuestion[] {
   const focuses = job.analysis?.requirements.map((item) => item.label) ?? detectRequirements(job.description).map((item) => item.label);
   const safeFocuses = focuses.length ? focuses : ["role priorities", "customer outcomes", "cross-functional delivery", "measurable impact"];
-  return Array.from({ length: 112 }, (_, index) => {
+  const hardQuestions = hardInterviewQuestions(job);
+  const roleQuestions = Array.from({ length: 112 - hardQuestions.length }, (_, roleIndex) => {
+    const index = roleIndex + hardQuestions.length;
     const focus = safeFocuses[index % safeFocuses.length];
     const stem = QUESTION_STEMS[Math.floor(index / safeFocuses.length) % QUESTION_STEMS.length];
     const cycle = Math.floor(index / (QUESTION_STEMS.length * safeFocuses.length));
@@ -141,8 +189,10 @@ export function generateInterviewQuestions(job: Pick<Job, "title" | "description
       category: index % 4 === 0 ? "Role craft" : index % 4 === 1 ? "Behavioural" : index % 4 === 2 ? "Leadership" : "Evidence gap",
       prompt: `${stem.replace("{focus}", focus.toLowerCase())}${suffix}`,
       focus,
+      difficulty: "core" as const,
     };
   });
+  return [...hardQuestions, ...roleQuestions];
 }
 
 export function coachAnswer(answer: string, question: InterviewQuestion, job: Pick<Job, "title" | "company">): CoachResult {

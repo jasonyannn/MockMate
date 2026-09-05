@@ -3,10 +3,11 @@ import test from "node:test";
 import { zipSync } from "fflate";
 import { coachScoreLabel, keywordCoverage, scoreAnswerCore } from "../lib/scoring-core.ts";
 import { extractLinkedInArchiveText, extractRtfText } from "../lib/document-extract.ts";
-import { analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "../lib/ai-service.ts";
+import { analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz, hasCurrentInterviewQuestionPack } from "../lib/ai-service.ts";
 import { readPreferences } from "../lib/preferences.ts";
 import { documentDisplayName, normalizeDocumentLibrary } from "../lib/document-library.ts";
 import { generateStudySheet, generateTerminologyQuiz, recommendedTerminologyCategories, TERMINOLOGY_CATEGORIES } from "../lib/terminology.ts";
+import { isApprovedAustralianPublicSource, publicInterviewSources } from "../lib/public-interview-data.ts";
 
 const resume = "Led AI product strategy and customer discovery. Increased adoption by 31% and worked cross-functionally with engineering and design.";
 const description = "Lead AI product strategy, customer discovery, cross-functional delivery, analytics and executive communication.";
@@ -60,8 +61,24 @@ test("question and quiz generators honour product counts", () => {
   const questions = generateInterviewQuestions(analysedJob);
   assert.equal(questions.length, 112);
   assert.equal(new Set(questions.map((question) => question.id)).size, 112);
+  assert.equal(hasCurrentInterviewQuestionPack(questions), true);
+  assert.deepEqual(questions.slice(0, 3).map((question) => question.difficulty), ["hard", "hard", "hard"]);
+  assert.match(questions[0].prompt, /manager on day one/i);
+  assert.match(questions[1].prompt, /AI in the first 60–90 days/i);
+  assert.match(questions[2].prompt, /automated or changed a team/i);
+  assert.ok(questions.slice(0, 3).every((question) => question.whyAsked?.length > 40 && question.answerGuide?.length === 4 && question.sources?.length >= 2));
   assert.equal(generateQuiz(analysedJob, 5).length, 5);
   assert.equal(generateQuiz(analysedJob, 15).length, 15);
+});
+
+test("Australian public-data grounding is allowlisted and licence-aware", () => {
+  assert.ok(publicInterviewSources.length >= 5);
+  assert.ok(publicInterviewSources.every((source) => isApprovedAustralianPublicSource(source.url)));
+  assert.ok(publicInterviewSources.every((source) => source.publisher.length > 5 && source.caveat.length > 30));
+  const licensed = publicInterviewSources.filter((source) => source.status === "licensed-data");
+  assert.ok(licensed.length >= 2);
+  assert.ok(licensed.every((source) => /Creative Commons Attribution 4\.0/.test(source.licence) && source.attribution && source.licenceUrl));
+  assert.ok(publicInterviewSources.filter((source) => source.status === "reference-only").every((source) => !source.attribution));
 });
 
 test("terminology study sheets cover every business department in plain English", () => {

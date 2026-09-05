@@ -88,6 +88,10 @@ export type InterviewQuestion = {
   category: string;
   prompt: string;
   focus: string;
+  difficulty?: "core" | "hard";
+  whyAsked?: string;
+  answerGuide?: string[];
+  sources?: ResearchSource[];
   provenance?: AIProvenance;
 };
 

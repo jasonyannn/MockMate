@@ -6,11 +6,12 @@ import { SettingsDialog } from "./SettingsDialog";
 import { SpeechPractice } from "./SpeechPractice";
 import { TerminologyLab } from "./TerminologyLab";
 import { getAIStatus, requestAI } from "@/lib/ai-client";
-import { AI_SERVICE_CONFIG, analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz } from "@/lib/ai-service";
+import { AI_SERVICE_CONFIG, analyseCandidate, coachAnswer, generateInterviewQuestions, generateQuiz, hasCurrentInterviewQuestionPack } from "@/lib/ai-service";
 import { createBlankJob, createBlankWorkspace, SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@/lib/demo-data";
 import { DEFAULT_PREFERENCES, PREFERENCES_STORAGE_KEY, readPreferences } from "@/lib/preferences";
 import { coachScoreLabel } from "@/lib/scoring-core";
 import { documentDisplayName, normalizeDocumentLibrary } from "@/lib/document-library";
+import { PUBLIC_INTERVIEW_DATA_VERSION, publicInterviewSources } from "@/lib/public-interview-data";
 import type { AppPreferences } from "@/lib/preferences";
 import type { AIProvenance, AnalysisResult, CoachResult, EvidenceItem, InterviewAnswer, InterviewQuestion, Job, ProfileTemplate, QuizAttempt, QuizQuestion, SavedCoverLetter, SavedResume, StageId, Workspace } from "@/lib/types";
 import type { AIStatus } from "@/lib/ai-client";
@@ -37,7 +38,7 @@ function recalibrateWorkspace(workspace: Workspace): Workspace {
       job = { ...job, customInterviewQuestions: [] };
       changed = true;
     }
-    const generatedQuestions = job.interviewQuestions?.length ? job.interviewQuestions : generateInterviewQuestions(job);
+    const generatedQuestions = hasCurrentInterviewQuestionPack(job.interviewQuestions) ? job.interviewQuestions! : generateInterviewQuestions(job);
     const customQuestions = job.customInterviewQuestions ?? [];
     const questions = new Map([...generatedQuestions, ...customQuestions].map((question) => [question.id, question]));
     const interviewAnswers = Object.fromEntries(Object.entries(job.interviewAnswers).map(([id, answer]) => {
@@ -577,11 +578,11 @@ function LinkedInEvidencePanel({ job, updateJob, onReanalyse }: { job: Job; upda
 }
 
 function MockInterview({ job, updateJob, onNext, preferences, announce }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onNext: () => void; preferences: AppPreferences; announce: (message: string) => void }) {
-  const generatedQuestions = useMemo(() => job.interviewQuestions?.length === 112 ? job.interviewQuestions : generateInterviewQuestions(job), [job]);
+  const generatedQuestions = useMemo(() => hasCurrentInterviewQuestionPack(job.interviewQuestions) ? job.interviewQuestions! : generateInterviewQuestions(job), [job]);
   const customQuestions = useMemo(() => job.customInterviewQuestions ?? [], [job.customInterviewQuestions]);
   const questions = useMemo(() => [...generatedQuestions, ...customQuestions].map((item, index) => ({ ...item, number: index + 1 })), [generatedQuestions, customQuestions]);
   const requestedQuestions = useRef("");
-  const questionState = job.interviewQuestions?.length === 112 ? "ready" : "loading";
+  const questionState = hasCurrentInterviewQuestionPack(job.interviewQuestions) ? "ready" : "loading";
   const [coaching, setCoaching] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
   const [customError, setCustomError] = useState("");
@@ -590,7 +591,7 @@ function MockInterview({ job, updateJob, onNext, preferences, announce }: { job:
   const attempted = Object.values(job.interviewAnswers).filter((item) => item.text.trim()).length;
   function saveAnswer(next: InterviewAnswer) { updateJob({ interviewAnswers: { ...job.interviewAnswers, [question.id]: next } }); }
   useEffect(() => {
-    if (job.interviewQuestions?.length === 112) return;
+    if (hasCurrentInterviewQuestionPack(job.interviewQuestions)) return;
     const requestKey = `${job.id}-${job.analysis?.id ?? "unanalysed"}`;
     if (requestedQuestions.current === requestKey) return;
     requestedQuestions.current = requestKey;
@@ -600,7 +601,7 @@ function MockInterview({ job, updateJob, onNext, preferences, announce }: { job:
       .then(({ result }) => { if (!cancelled) updateJob({ interviewQuestions: result }); })
       .catch(() => { if (!cancelled) updateJob({ interviewQuestions: generateInterviewQuestions(questionJob) }); });
     return () => { cancelled = true; };
-  }, [job.id, job.title, job.company, job.description, job.analysis, job.interviewQuestions?.length, updateJob]);
+  }, [job.id, job.title, job.company, job.description, job.analysis, job.interviewQuestions, updateJob]);
   function addCustomQuestion() {
     const prompt = customPrompt.replace(/\s+/g, " ").trim();
     if (prompt.length < 10) { setCustomError("Enter a complete interview question before adding it."); return; }
@@ -653,14 +654,20 @@ function MockInterview({ job, updateJob, onNext, preferences, announce }: { job:
   function selectQuestion(index: number) { setSelected(index); setPage(Math.floor(index / 14)); if (preferences.verboseAnnouncements) announce(`Question ${index + 1}: ${questions[index].prompt}`); if (window.innerWidth < 900) setListOpen(false); }
   return <>
     <StageHeading title="Practise the moments that matter." description={`${generatedQuestions.length} role questions${customQuestions.length ? ` plus ${customQuestions.length} of your own` : ""}, with coaching on every answer.`} action={<div className="stage-heading-actions"><AIProvenanceBadge value={generatedQuestions[0]?.provenance} /><div className="progress-stat"><strong>{attempted}</strong><span>of {questions.length}<small>{questionState === "loading" ? "personalising" : "attempted"}</small></span></div></div>} />
+    <details className="public-data-grounding">
+      <summary><span aria-hidden="true">AU</span><div><small>PUBLIC-DATA GROUNDING · {PUBLIC_INTERVIEW_DATA_VERSION}</small><b>Australian role context, with the source trail attached.</b><p>Licensed skills and aggregate labour-market sources improve question coverage. Government guidance shapes privacy and governance scenarios.</p></div><i>View {publicInterviewSources.length} sources ＋</i></summary>
+      <div className="public-source-grid">{publicInterviewSources.map((source) => <article key={source.id}><div><span>{source.status === "licensed-data" ? "LICENSED DATA" : "REFERENCE ONLY"}</span><small>{source.purpose.replace("-", " ")}</small></div><h3>{source.title}</h3><p>{source.caveat}</p><footer><b>{source.publisher}</b><a href={source.url} target="_blank" rel="noreferrer">Open source ↗</a></footer>{source.attribution && <small className="source-attribution">{source.attribution}</small>}</article>)}</div>
+      <div className="public-data-boundary"><b>Responsible-use boundary</b><p>No job-board scraping, candidate profiling or protected traits. Public data helps choose what to ask; it is never used to predict hiring chances or make an employment decision. Source licences must be checked before any new dataset is enabled.</p></div>
+    </details>
     <form className="custom-question-card" onSubmit={(event) => { event.preventDefault(); addCustomQuestion(); }}>
       <div className="custom-question-copy"><span className="overline">BRING YOUR OWN QUESTION</span><h2>Add something you want to rehearse.</h2><p>Paste a question from a recruiter, hiring manager or your own preparation list. It is saved with this role and uses the same answer coaching.</p></div>
       <div className="custom-question-entry"><label><span className="sr-only">Your interview question</span><textarea value={customPrompt} maxLength={500} onChange={(event) => { setCustomPrompt(event.target.value); if (customError) setCustomError(""); }} placeholder="e.g. Tell me about a time you influenced a difficult stakeholder without formal authority." /></label><button className="button button-dark" type="submit" disabled={!customPrompt.trim()}>＋ Add question</button></div>
       <div className="custom-question-status"><small>{customQuestions.length ? `${customQuestions.length} custom question${customQuestions.length === 1 ? "" : "s"} saved with this role` : "Your questions remain private in this workspace"}</small>{customError && <p role="alert">{customError}</p>}</div>
     </form>
     <div className="interview-shell">
-      <aside className={listOpen ? "question-browser open" : "question-browser"} aria-label="Interview question list"><div className="question-browser-head"><div><span className="overline">QUESTION SET</span><b>{page * 14 + 1}–{Math.min(page * 14 + 14, questions.length)} of {questions.length}</b></div><button onClick={() => setListOpen(false)} aria-label="Close question list">×</button></div><div className="question-items">{pageQuestions.map((item, index) => { const absolute = page * 14 + index; const saved = job.interviewAnswers[item.id]; return <button key={item.id} className={selected === absolute ? "active" : ""} onClick={() => selectQuestion(absolute)} aria-current={selected === absolute ? "true" : undefined}><span>{saved?.result ? "✓" : item.number.toString().padStart(2, "0")}</span><div><small>{item.category}</small><p>{item.prompt}</p></div>{saved?.result && <b aria-label={`Coach score ${saved.result.score}`}>{saved.result.score}</b>}</button>; })}</div><div className="pagination"><button disabled={page === 0} onClick={() => { setPage(page - 1); setSelected((page - 1) * 14); }} aria-label="Previous 14 questions">←</button><span>{page + 1} / {Math.ceil(questions.length / 14)}</span><button disabled={page === Math.ceil(questions.length / 14) - 1} onClick={() => { setPage(page + 1); setSelected((page + 1) * 14); }} aria-label="Next 14 questions">→</button></div></aside>
-      <section className="practice-panel" aria-labelledby="current-interview-question"><button className="question-list-toggle" onClick={() => setListOpen(!listOpen)} aria-expanded={listOpen}>☷ Question list</button><div className="question-meta"><span>{question.category}</span><span>Question {question.number} of {questions.length}</span></div><h2 id="current-interview-question">{question.prompt}</h2><div className="question-tools"><button className="read-button" onClick={speakQuestion}>◖ Read question aloud</button>{question.category === "Your question" && <button className="remove-custom-question" onClick={removeCustomQuestion}>Remove my question</button>}</div>
+      <aside className={listOpen ? "question-browser open" : "question-browser"} aria-label="Interview question list"><div className="question-browser-head"><div><span className="overline">QUESTION SET</span><b>{page * 14 + 1}–{Math.min(page * 14 + 14, questions.length)} of {questions.length}</b></div><button onClick={() => setListOpen(false)} aria-label="Close question list">×</button></div><div className="question-items">{pageQuestions.map((item, index) => { const absolute = page * 14 + index; const saved = job.interviewAnswers[item.id]; return <button key={item.id} className={selected === absolute ? "active" : ""} onClick={() => selectQuestion(absolute)} aria-current={selected === absolute ? "true" : undefined}><span>{saved?.result ? "✓" : item.number.toString().padStart(2, "0")}</span><div><small>{item.category}{item.difficulty === "hard" ? " · Hard" : ""}</small><p>{item.prompt}</p></div>{saved?.result && <b aria-label={`Coach score ${saved.result.score}`}>{saved.result.score}</b>}</button>; })}</div><div className="pagination"><button disabled={page === 0} onClick={() => { setPage(page - 1); setSelected((page - 1) * 14); }} aria-label="Previous 14 questions">←</button><span>{page + 1} / {Math.ceil(questions.length / 14)}</span><button disabled={page === Math.ceil(questions.length / 14) - 1} onClick={() => { setPage(page + 1); setSelected((page + 1) * 14); }} aria-label="Next 14 questions">→</button></div></aside>
+      <section className="practice-panel" aria-labelledby="current-interview-question"><button className="question-list-toggle" onClick={() => setListOpen(!listOpen)} aria-expanded={listOpen}>☷ Question list</button><div className="question-meta"><span>{question.category}</span>{question.difficulty === "hard" && <span className="hard-question-pill">Hard question</span>}<span>Question {question.number} of {questions.length}</span></div><h2 id="current-interview-question">{question.prompt}</h2><div className="question-tools"><button className="read-button" onClick={speakQuestion}>◖ Read question aloud</button>{question.category === "Your question" && <button className="remove-custom-question" onClick={removeCustomQuestion}>Remove my question</button>}</div>
+        {question.difficulty === "hard" && <aside className="hard-question-guide" aria-label="Answer guidance"><div><span>WHAT THEY ARE TESTING</span><p>{question.whyAsked}</p></div><div><span>STRONG ANSWER SHOULD COVER</span><ul>{question.answerGuide?.map((item) => <li key={item}>{item}</li>)}</ul></div>{question.sources?.length ? <footer><span>Grounding</span>{question.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer">{source.title} ↗</a>)}</footer> : null}</aside>}
         <div className="answer-mode" role="group" aria-label="Answer mode"><button className={answer.mode === "writing" ? "active" : ""} aria-pressed={answer.mode === "writing"} onClick={() => saveAnswer({ ...answer, mode: "writing" })}>⌨ Writing</button><button className={answer.mode === "speaking" ? "active" : ""} aria-pressed={answer.mode === "speaking"} onClick={() => saveAnswer({ ...answer, mode: "speaking" })}>● Speaking</button></div>
         {answer.mode === "speaking" && <SpeechPractice answerText={answer.text} language={preferences.practiceLanguage} onTranscript={(text) => saveAnswer({ ...answer, text, result: undefined, mode: "speaking", updatedAt: new Date().toISOString() })} onAnnounce={(message) => { if (preferences.verboseAnnouncements) announce(message); }} />}
         <label className="answer-area"><span className="sr-only">Your interview answer</span><textarea value={answer.text} onChange={(event) => saveAnswer({ ...answer, text: event.target.value, result: undefined, updatedAt: new Date().toISOString() })} placeholder="Shape your answer with context, your specific actions, and a measurable result…" /><span aria-hidden="true">{answer.text.trim() ? answer.text.trim().split(/\s+/).length : 0} words · aim for 90 seconds</span></label>
