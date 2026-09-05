@@ -21,7 +21,7 @@ const makeId = () => crypto.randomUUID();
 function SourceBadge({ sheet, loading }: { sheet?: TerminologySheet; loading: boolean }) {
   if (loading) return <span className="ai-provenance is-ai">✦ Personalising…</span>;
   return sheet?.provenance.mode === "openai"
-    ? <span className="ai-provenance is-ai">✦ AI · {sheet.provenance.model}</span>
+    ? <span className="ai-provenance is-ai">✦ Live trend scan · {sheet.provenance.model}</span>
     : <span className="ai-provenance is-fallback">◇ Curated glossary</span>;
 }
 
@@ -40,6 +40,7 @@ export function TerminologyLab({ job, updateJob, onNext }: Props) {
   const curated = useMemo(() => generateStudySheet({ title: job.title, description: job.description }), [job.title, job.description]);
   const recommended = useMemo(() => recommendedTerminologyCategories({ title: job.title, description: job.description }), [job.title, job.description]);
   const terms = useMemo(() => mergeTerminologyTerms(job.terminologySheet?.terms ?? [], curated.terms), [job.terminologySheet, curated.terms]);
+  const sources = job.terminologySheet?.sources?.length ? job.terminologySheet.sources : curated.sources ?? [];
   const [mode, setMode] = useState<LabMode>("study");
   const [category, setCategory] = useState<CategoryFilter>(() => recommended[0] ?? "All departments");
   const [query, setQuery] = useState("");
@@ -111,7 +112,7 @@ export function TerminologyLab({ job, updateJob, onNext }: Props) {
       const roleJob = { id: job.id, title: job.title, company: job.company, description: job.description, analysis: job.analysis };
       const { result } = await requestAI<TerminologySheet>("terminology", { job: roleJob });
       updateJob({ terminologySheet: result });
-      setMessage(result.provenance.mode === "openai" ? "Study sheet refreshed for this role." : "Curated glossary refreshed.");
+      setMessage(result.provenance.mode === "openai" ? "Current terminology and official sources refreshed for this role." : "Curated glossary refreshed.");
     } catch {
       setMessage("The curated glossary remains available; AI personalisation could not be refreshed.");
     } finally {
@@ -135,6 +136,11 @@ export function TerminologyLab({ job, updateJob, onNext }: Props) {
         {TERMINOLOGY_CATEGORIES.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => selectCategory(item)}><b>{recommended.includes(item) ? "✦ " : ""}{item}</b><span>{terms.filter((term) => term.category === item).length} terms</span></button>)}
       </div>
     </section>
+
+    <div className="term-source-strip">
+      <div><span>{job.terminologySheet?.provenance.mode === "openai" ? "✦" : "◇"}</span><div><b>{job.terminologySheet?.provenance.mode === "openai" ? "Current terminology checked with live web research" : "Curated against current official references"}</b><small>Model names change quickly. MockMate uses official sources instead of guessing future versions.</small></div></div>
+      <div>{sources.slice(0, 5).map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer">{source.title} ↗</a>)}</div>
+    </div>
 
     {message && <p className="term-message" role="status">{message}</p>}
 

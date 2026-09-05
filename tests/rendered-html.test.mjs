@@ -22,6 +22,7 @@ test("server-renders the finished MockMate product", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /<title>MockMate — Evidence wins interviews<\/title>/i);
+  assert.match(html, /href="\/favicon\.svg"/i);
   assert.match(html, /Your experience is strong/);
   assert.match(html, /Create my account/);
   assert.match(html, /signin-with-chatgpt/);

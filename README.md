@@ -26,7 +26,7 @@ AI calls run only from `/api/ai`; the browser never receives the provider key. F
 
 Without a key or during a provider outage, MockMate stays usable and labels the result as a verified deterministic fallback. The fallback is never presented as model output. In Sites production, configure the same variables as runtime environment variables rather than committing a secret.
 
-The Knowledge Lab always includes a curated plain-English glossary spanning AI and automation, technology and data, marketing and the creator economy, people and HR, sales, finance, operations, product, and governance. When AI is configured, it adds role-personalised terminology while retaining full category coverage. Terminology and role-mastery quiz scores are saved separately and combined in the readiness dashboard.
+The Knowledge Lab always includes a curated plain-English glossary of more than 80 current terms spanning AI and automation, agentic engineering, technology and data, marketing and the creator economy, people and HR, sales, finance, operations, product, and governance. It covers practical concepts such as model context, MCP, tool calling, evals, Vite builds, configuration, Markdown, deployment, current frontier-model names and cross-functional business language. When AI is configured, a web-backed refresh checks current official sources and adds role-personalised terminology while retaining full category coverage. Terminology and role-mastery quiz scores are saved separately and combined in the readiness dashboard.
 
 ## Preparation workflow
 

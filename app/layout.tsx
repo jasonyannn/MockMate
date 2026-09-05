@@ -15,6 +15,10 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "MockMate — Evidence wins interviews",
     description,
+    icons: {
+      icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+      shortcut: "/favicon.svg",
+    },
     openGraph: { title: "MockMate — Evidence wins interviews", description, images: [{ url: image, width: 1731, height: 909, alt: "MockMate candidate analysis and evidence preview" }] },
     twitter: { card: "summary_large_image", title: "MockMate — Evidence wins interviews", description, images: [image] },
   };

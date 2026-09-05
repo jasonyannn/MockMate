@@ -112,6 +112,7 @@ export type QuizAttempt = {
 
 export type TerminologyCategory =
   | "AI & automation"
+  | "Agentic engineering"
   | "Technology & data"
   | "Marketing & creator economy"
   | "People & HR"
@@ -135,6 +136,7 @@ export type TerminologySheet = {
   terms: StudyTerm[];
   generatedAt: string;
   provenance: AIProvenance;
+  sources?: ResearchSource[];
 };
 
 export type Job = {

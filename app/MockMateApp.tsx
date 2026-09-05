@@ -675,9 +675,9 @@ function MockInterview({ job, updateJob, onNext, preferences, announce }: { job:
 function KnowledgeLab({ job, updateJob, onNext }: { job: Job; updateJob: (update: Partial<Job> | ((job: Job) => Job)) => void; onNext: () => void }) {
   const [mode, setMode] = useState<"terminology" | "mastery">("terminology");
   return <>
-    <StageHeading eyebrow="KNOWLEDGE LAB" title="Learn the language. Prove the judgement." description="Build plain-English fluency across departments, then test either the terms or the decisions your target role demands." />
+    <StageHeading eyebrow="KNOWLEDGE LAB" title="Learn the language. Prove the judgement." description="Build current plain-English fluency across AI, agentic engineering and every business department, then test either the terms or the decisions your target role demands." />
     <div className="knowledge-lab-switch" role="tablist" aria-label="Knowledge lab mode">
-      <button role="tab" aria-selected={mode === "terminology"} className={mode === "terminology" ? "active" : ""} onClick={() => setMode("terminology")}><span>01</span><div><b>Terminology fluency</b><small>Study plain-English terms across 9 departments</small></div><i>→</i></button>
+      <button role="tab" aria-selected={mode === "terminology"} className={mode === "terminology" ? "active" : ""} onClick={() => setMode("terminology")}><span>01</span><div><b>Terminology fluency</b><small>Study current AI, technical and business language</small></div><i>→</i></button>
       <button role="tab" aria-selected={mode === "mastery"} className={mode === "mastery" ? "active" : ""} onClick={() => setMode("mastery")}><span>02</span><div><b>Role mastery</b><small>Test judgement and trade-offs for this role</small></div><i>→</i></button>
     </div>
     {mode === "terminology" ? <TerminologyLab job={job} updateJob={updateJob} onNext={onNext} /> : <MasteryQuiz job={job} updateJob={updateJob} onNext={onNext} />}

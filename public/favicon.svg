@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MockMate">
+  <rect x="2" y="2" width="60" height="60" rx="17" fill="#18241f"/>
+  <text x="31" y="45" fill="#fffefa" font-family="Georgia, 'Times New Roman', serif" font-size="39" font-style="italic" font-weight="700" text-anchor="middle">M</text>
+  <circle cx="54" cy="10" r="8" fill="#fffefa"/>
+  <circle cx="54" cy="10" r="5.5" fill="#d9ff43"/>
+</svg>
